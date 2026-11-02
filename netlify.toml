@@ -1,0 +1,13 @@
+# Netlify build settings for INVPORTIQ (environment variables are set in the Netlify UI).
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# Single-page app: serve index.html for app routes (real files are served first).
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
