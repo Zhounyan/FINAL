@@ -1,0 +1,106 @@
+@import 'tailwindcss';
+
+/* Bill Store brand palette (sampled from the logo) */
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --color-brand-50: #f2f7f0;
+  --color-brand-100: #e2eedd;
+  --color-brand-200: #c4dcba;
+  --color-brand-300: #9cc28e;
+  --color-brand-400: #6fa35f;
+  --color-brand-500: #4e8a40;
+  --color-brand-600: #3a7033;
+  --color-brand-700: #2b5a2c;
+  --color-brand-800: #1f4a2b;
+  --color-brand-900: #163620;
+  --color-brand-950: #0d2214;
+
+  --color-wood-100: #f5ebdf;
+  --color-wood-500: #a8743f;
+  --color-wood-700: #7a5129;
+
+  --color-canvas: #f6f5ef;
+  --color-surface: #ffffff;
+  --color-ink: #17221b;
+  --color-muted: #5f6b63;
+  --color-line: #e3e5dc;
+
+  --shadow-card: 0 1px 2px rgb(22 54 32 / 0.05), 0 4px 16px -6px rgb(22 54 32 / 0.08);
+  --shadow-pop: 0 18px 50px -12px rgb(13 34 20 / 0.35);
+
+  --animate-fade-in: fade-in 0.18s ease-out;
+  --animate-pop-in: pop-in 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  --animate-slide-in: slide-in 0.22s ease-out;
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes pop-in {
+    from { opacity: 0; transform: translateY(6px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes slide-in {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(0); }
+  }
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-canvas font-sans text-ink antialiased;
+  }
+  ::selection {
+    @apply bg-brand-200 text-brand-950;
+  }
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-brand-500;
+  }
+  input[type='number']::-webkit-inner-spin-button {
+    opacity: 0.5;
+  }
+}
+
+@layer components {
+  .input {
+    @apply block w-full rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink shadow-xs transition
+      placeholder:text-slate-400 hover:border-brand-300 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none
+      disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500;
+  }
+  .input-invalid {
+    @apply border-red-400 focus:border-red-500 focus:ring-red-500/20;
+  }
+  .table-base {
+    @apply w-full text-left text-sm;
+  }
+  .table-base thead th {
+    @apply sticky top-0 z-[1] whitespace-nowrap border-b border-line bg-brand-50/80 px-4 py-2.5 text-xs font-semibold tracking-wide text-brand-900 uppercase backdrop-blur;
+  }
+  .table-base tbody td {
+    @apply border-b border-line/70 px-4 py-3 align-middle;
+  }
+  .table-base tbody tr {
+    @apply transition-colors hover:bg-brand-50/50;
+  }
+  .table-base tfoot td {
+    @apply border-t-2 border-brand-200 bg-brand-50 px-4 py-3 font-semibold;
+  }
+  .num {
+    @apply text-right tabular-nums whitespace-nowrap;
+  }
+}
+
+@media print {
+  aside,
+  header,
+  .no-print {
+    display: none !important;
+  }
+  main {
+    padding: 0 !important;
+  }
+}
