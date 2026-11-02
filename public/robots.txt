@@ -1,5 +1,3 @@
 User-agent: *
-Allow: /$
-Allow: /login
-Disallow: /
+Allow: /
 Sitemap: https://billstore-invportiq.netlify.app/sitemap.xml
