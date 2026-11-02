@@ -48,9 +48,14 @@ serve(async (_req, body) => {
     p_full_name: fullName,
   });
   if (claimErr) {
-    // Lost the race or setup closed meanwhile: remove the orphaned auth user.
+    // Remove the orphaned auth user, then report what actually happened.
     await admin.auth.admin.deleteUser(created.user.id);
-    throw new HttpError(403, 'Initial setup has already been completed. Please sign in.', 'setup_closed');
+    const { data: after } = await admin.rpc('setup_status');
+    if (after && after.setup_required === false) {
+      throw new HttpError(403, 'Initial setup has already been completed. Please sign in.', 'setup_closed');
+    }
+    console.error('complete_initial_setup failed', claimErr);
+    throw new HttpError(500, `Setup could not be completed: ${claimErr.message}`, 'setup_failed');
   }
 
   return { ok: true, email };
