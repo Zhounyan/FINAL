@@ -98,6 +98,8 @@ test('admin manages categories, suppliers and customers (newest first)', async (
     await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
     await expectToast('Category added.');
   }
+  // newest category is listed first
+  await expect(page.getByTestId('categories-table').locator('tbody tr').first()).toContainText('Food Products');
   // duplicate category is rejected
   await page.getByRole('button', { name: 'Add category' }).click();
   await page.getByRole('dialog').getByLabel('Category name').fill('beverages');

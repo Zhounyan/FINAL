@@ -368,7 +368,7 @@ function CategoriesPanel() {
   return (
     <Card
       title="Product categories"
-      subtitle="Categories group products for filtering and category-based stock reports"
+      subtitle="Newest categories appear first"
       actions={can.manageCategories && <Button icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>Add category</Button>}
     >
       {categories.isError ? (
@@ -379,7 +379,7 @@ function CategoriesPanel() {
         <EmptyState icon={<Tags className="size-6" />} title="No categories yet" message="Create categories such as Beverages, Food Products, Household Products and Personal Care." />
       ) : (
         <TableWrap>
-          <table className="table-base">
+          <table className="table-base" data-testid="categories-table">
             <thead>
               <tr>
                 <th>Category</th>

@@ -115,7 +115,7 @@ export function adminUsers(payload: AdminUserAction) {
 export type CategoryWithCount = Category & { products: { count: number }[] };
 
 export async function listCategories(): Promise<CategoryWithCount[]> {
-  return unwrap(await supabase.from('categories').select('*, products(count)').order('name'));
+  return unwrap(await supabase.from('categories').select('*, products(count)').order('created_at', { ascending: false }).order('id', { ascending: false }));
 }
 
 export async function saveCategory(input: { id?: number; name: string; description?: string }) {
@@ -158,7 +158,7 @@ export async function listProducts(p: ProductQuery): Promise<Page<ProductRow>> {
 }
 
 export async function listAllProducts(opts: { categoryId?: number | null; includeArchived?: boolean } = {}): Promise<ProductRow[]> {
-  let q = supabase.from('product_overview').select('*').order('name');
+  let q = supabase.from('product_overview').select('*').order('created_at', { ascending: false }).order('id', { ascending: false });
   if (!opts.includeArchived) q = q.eq('is_archived', false);
   if (opts.categoryId) q = q.eq('category_id', opts.categoryId);
   return unwrap(await q.limit(5000));
@@ -236,7 +236,7 @@ export async function listCustomers(p: { search?: string; page: number; archived
 }
 
 export async function listCustomerOptions(): Promise<Pick<Customer, 'id' | 'full_name'>[]> {
-  return unwrap(await supabase.from('customers').select('id, full_name').eq('is_archived', false).order('full_name').limit(5000));
+  return unwrap(await supabase.from('customers').select('id, full_name').eq('is_archived', false).order('created_at', { ascending: false }).order('id', { ascending: false }).limit(5000));
 }
 
 export async function saveCustomer(input: Partial<Customer> & { full_name: string }) {
@@ -273,7 +273,7 @@ export async function listSuppliers(p: { search?: string; page: number; archived
 }
 
 export async function listSupplierOptions(): Promise<Pick<Supplier, 'id' | 'name'>[]> {
-  return unwrap(await supabase.from('suppliers').select('id, name').eq('is_archived', false).order('name').limit(5000));
+  return unwrap(await supabase.from('suppliers').select('id, name').eq('is_archived', false).order('created_at', { ascending: false }).order('id', { ascending: false }).limit(5000));
 }
 
 export async function saveSupplier(input: Partial<Supplier> & { name: string }) {
@@ -426,7 +426,7 @@ export async function movementSummary(f: MovementFilter & { bucket: 'day' | 'mon
 }
 
 export async function movementBreakdown(f: MovementFilter & { group: 'product' | 'category' }): Promise<BreakdownRow[]> {
-  return unwrap(
+  const rows: BreakdownRow[] = unwrap(
     await supabase.rpc('stock_movement_breakdown', {
       p_from: f.from,
       p_to: f.to,
@@ -435,6 +435,8 @@ export async function movementBreakdown(f: MovementFilter & { group: 'product' |
       p_product_id: f.productId ?? null,
     }),
   );
+  // Newest products / categories first (ids increase as records are created).
+  return [...(rows ?? [])].sort((x, y) => y.group_id - x.group_id);
 }
 
 export async function listMovements(
