@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Archive, ArchiveRestore, Eye, FolderTree, Package, Pencil, Plus, Tags, Trash2 } from 'lucide-react';
+import { Eye, FolderTree, Package, Pencil, Plus, Power, PowerOff, Tags, Trash2 } from 'lucide-react';
 import {
   createProduct,
   deleteCategory,
@@ -13,7 +13,7 @@ import {
   listMovements,
   listProducts,
   PAGE_SIZE,
-  restoreProduct,
+  setProductActive,
   saveCategory,
   updateProduct,
   type CategoryWithCount,
@@ -73,6 +73,7 @@ function ProductsPanel() {
   const [editing, setEditing] = useState<ProductRow | 'new' | null>(null);
   const [viewing, setViewing] = useState<ProductRow | null>(null);
   const [deleting, setDeleting] = useState<ProductRow | null>(null);
+  const [deactivating, setDeactivating] = useState<ProductRow | null>(null);
 
   const [page, setPage] = useResettingPage([debounced, categoryId, status, archived]);
 
@@ -85,24 +86,25 @@ function ProductsPanel() {
   const del = useMutation({
     mutationFn: (p: ProductRow) => deleteProduct(p.id),
     onSuccess: async (result, p) => {
-      toast.success(result === 'archived' ? `"${p.name}" has stock history, so it was archived instead of deleted.` : `"${p.name}" was deleted.`);
+      toast.success(result === 'archived' ? `"${p.name}" has stock history, so it was deactivated instead of deleted.` : `"${p.name}" was deleted.`);
       setDeleting(null);
       await invalidate();
     },
     onError: (e) => toast.error(errorMessage(e)),
   });
-  const restore = useMutation({
-    mutationFn: (p: ProductRow) => restoreProduct(p.id),
-    onSuccess: async (_r, p) => {
-      toast.success(`"${p.name}" restored.`);
-      await qc.invalidateQueries({ queryKey: ['products'] });
+  const toggle = useMutation({
+    mutationFn: ({ product, active }: { product: ProductRow; active: boolean }) => setProductActive(product.id, active),
+    onSuccess: async (_r, { product, active }) => {
+      toast.success(active ? `"${product.name}" reactivated. It can be sold and restocked again.` : `"${product.name}" deactivated. It is hidden from sales and stock-in.`);
+      setDeactivating(null);
+      await Promise.all([qc.invalidateQueries({ queryKey: ['products'] }), qc.invalidateQueries({ queryKey: ['dashboard'] }), qc.invalidateQueries({ queryKey: ['reports'] })]);
     },
     onError: (e) => toast.error(errorMessage(e)),
   });
 
   return (
     <Card
-      title={archived ? 'Archived products' : 'All products'}
+      title={archived ? 'Inactive products' : 'Active products'}
       subtitle="Newest products appear first"
       actions={
         can.addProducts && (
@@ -126,7 +128,7 @@ function ProductsPanel() {
         </select>
         <label className="flex items-center gap-2 text-sm text-muted">
           <input type="checkbox" className="size-4 accent-brand-700" checked={archived} onChange={(e) => setArchived(e.target.checked)} />
-          Show archived
+          Show inactive
         </label>
       </div>
       {query.isError ? (
@@ -135,7 +137,7 @@ function ProductsPanel() {
         <LoadingBlock />
       ) : !query.data?.rows.length ? (
         <EmptyState
-          title={debounced || categoryId || status !== 'all' ? 'No matching products' : archived ? 'No archived products' : 'No products yet'}
+          title={debounced || categoryId || status !== 'all' ? 'No matching products' : archived ? 'No inactive products' : 'No products yet'}
           message={can.addProducts && !archived ? 'Add your first product to start tracking inventory.' : undefined}
           action={can.addProducts && !archived && !debounced ? <Button icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>Add product</Button> : undefined}
         />
@@ -167,7 +169,7 @@ function ProductsPanel() {
                   <td className="whitespace-nowrap">{p.category_name}</td>
                   <td className="num font-semibold">{fmtInt(p.current_stock)} <span className="text-xs font-normal text-muted">{p.unit}</span></td>
                   <td className="num text-muted">{fmtInt(p.min_stock_level)}</td>
-                  <td><StockStatusBadge status={p.stock_status} /></td>
+                  <td>{p.is_archived ? <Badge tone="slate"><PowerOff className="size-3" /> Inactive</Badge> : <StockStatusBadge status={p.stock_status} />}</td>
                   {can.viewFinancials && <td className="num">{fmtMoney(p.purchase_price)}</td>}
                   <td className="num">{fmtMoney(p.selling_price)}</td>
                   <td className="text-xs whitespace-nowrap text-muted">{fmtDate(p.created_at)}</td>
@@ -176,11 +178,22 @@ function ProductsPanel() {
                     {can.editProducts && !p.is_archived && (
                       <Button variant="ghost" size="icon" onClick={() => setEditing(p)} aria-label={`Edit ${p.name}`}><Pencil className="size-4" /></Button>
                     )}
+                    {can.editProducts && !p.is_archived && (
+                      <Button variant="ghost" size="icon" className="hover:text-amber-700" onClick={() => setDeactivating(p)} aria-label={`Deactivate ${p.name}`} title="Deactivate"><PowerOff className="size-4" /></Button>
+                    )}
                     {can.deleteProducts && !p.is_archived && (
                       <Button variant="ghost" size="icon" className="hover:text-red-600" onClick={() => setDeleting(p)} aria-label={`Delete ${p.name}`}><Trash2 className="size-4" /></Button>
                     )}
-                    {can.deleteProducts && p.is_archived && (
-                      <Button variant="ghost" size="sm" icon={<ArchiveRestore className="size-4" />} loading={restore.isPending && restore.variables?.id === p.id} onClick={() => restore.mutate(p)}>Restore</Button>
+                    {can.editProducts && p.is_archived && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        icon={<Power className="size-4" />}
+                        loading={toggle.isPending && toggle.variables?.product.id === p.id}
+                        onClick={() => toggle.mutate({ product: p, active: true })}
+                      >
+                        Reactivate
+                      </Button>
                     )}
                   </td>
                 </tr>
@@ -194,11 +207,27 @@ function ProductsPanel() {
       {editing && <ProductFormModal product={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
       {viewing && <ProductDetailModal product={viewing} onClose={() => setViewing(null)} />}
       <ConfirmDialog
+        open={Boolean(deactivating)}
+        tone="primary"
+        title="Deactivate product?"
+        message={
+          <>
+            <b className="text-ink">{deactivating?.name}</b> will be hidden from Stock In and Record Sale and cannot be sold until you reactivate it.
+            Its {deactivating ? fmtInt(deactivating.current_stock) : 0} {deactivating?.unit} on hand and its full history are kept, and it still appears in reports.
+            Find it later with <b>Show inactive</b>.
+          </>
+        }
+        confirmLabel="Deactivate"
+        loading={toggle.isPending}
+        onConfirm={() => deactivating && toggle.mutate({ product: deactivating, active: false })}
+        onCancel={() => setDeactivating(null)}
+      />
+      <ConfirmDialog
         open={Boolean(deleting)}
         title="Delete product?"
         message={
           <>
-            Remove <b className="text-ink">{deleting?.name}</b>? Products with stock movement history are <b>archived</b> (kept for reports) instead of deleted.
+            Remove <b className="text-ink">{deleting?.name}</b>? Products with stock movement history are <b>deactivated</b> (kept for reports) instead of deleted.
             Products that still have stock cannot be removed.
           </>
         }
@@ -332,7 +361,7 @@ function ProductDetailModal({ product, onClose }: { product: ProductRow; onClose
           <DetailRow label="Description">{product.description || '—'}</DetailRow>
           <DetailRow label="Date added">{fmtDateTime(product.created_at)}</DetailRow>
           <DetailRow label="Last updated">{fmtDateTime(product.updated_at)}</DetailRow>
-          <DetailRow label="Status">{product.is_archived ? <Badge tone="slate"><Archive className="size-3" /> Archived</Badge> : <Badge tone="green">Active</Badge>}</DetailRow>
+          <DetailRow label="Status">{product.is_archived ? <Badge tone="slate"><PowerOff className="size-3" /> Inactive</Badge> : <Badge tone="green">Active</Badge>}</DetailRow>
         </dl>
       </div>
       <h3 className="mt-6 mb-2 text-sm font-semibold">Latest stock movements</h3>

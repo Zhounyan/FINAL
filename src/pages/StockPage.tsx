@@ -434,7 +434,8 @@ function StockOutForm() {
 }
 
 function AdjustmentForm() {
-  const products = useProductOptions();
+  // Admins can still correct the stock of inactive products.
+  const products = useProductOptions(null, true);
   const invalidate = useInvalidateInventory();
   const [productId, setProductId] = useState<number | null>(null);
   const [mode, setMode] = useState<'count' | 'delta'>('count');

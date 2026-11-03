@@ -243,6 +243,33 @@ test('stock movement history: dependent category→product filter and all four p
   await expect(page.getByTestId('history-breakdown').locator('tfoot')).toContainText('430');
 });
 
+test('admin can deactivate and reactivate a product', async () => {
+  await nav('Products');
+  const colaRow = page.getByTestId('products-table').locator('tbody tr').filter({ hasText: 'Cola 1L' });
+  await colaRow.getByRole('button', { name: 'Deactivate Cola 1L' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Deactivate' }).click();
+  await expectToast(/deactivated/);
+  await expect(page.getByTestId('products-table').locator('tbody tr').filter({ hasText: 'Cola 1L' })).toHaveCount(0);
+
+  // hidden from Record Sale
+  await nav('Stock Management');
+  await page.getByRole('tab', { name: 'Record Sale' }).click();
+  await page.getByRole('combobox', { name: /^Add product/ }).click();
+  await expect(page.getByRole('listbox').getByRole('option', { name: /Cola 1L/ })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
+  // still listed (with its stock) under "Show inactive", then reactivated
+  await nav('Products');
+  await page.getByLabel('Show inactive').check();
+  const inactive = page.getByTestId('products-table').locator('tbody tr').filter({ hasText: 'Cola 1L' });
+  await expect(inactive).toContainText('Inactive');
+  await expect(inactive).toContainText('380');
+  await inactive.getByRole('button', { name: 'Reactivate' }).click();
+  await expectToast(/reactivated/);
+  await page.getByLabel('Show inactive').uncheck();
+  await expect(page.getByTestId('products-table').locator('tbody tr').filter({ hasText: 'Cola 1L' })).toHaveCount(1);
+});
+
 test('reports export to Excel and PDF', async () => {
   await nav('Reports');
   await page.getByRole('button', { name: 'Stock-Sold Report' }).click();

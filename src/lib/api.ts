@@ -214,6 +214,11 @@ export async function deleteProduct(id: number): Promise<'deleted' | 'archived'>
   return unwrap(await supabase.rpc('delete_product', { p_id: id }));
 }
 
+/** Deactivate (hide from sales & stock-in, keep stock and history) or reactivate a product. Admin only. */
+export async function setProductActive(id: number, active: boolean) {
+  return unwrap(await supabase.rpc('set_product_active', { p_id: id, p_active: active }));
+}
+
 export async function restoreProduct(id: number) {
   return unwrap(await supabase.rpc('restore_product', { p_id: id }));
 }

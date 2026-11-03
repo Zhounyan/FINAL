@@ -83,7 +83,7 @@ const productColumns = (financial: boolean): ExportColumn<ProductRow>[] => [
   { header: 'Unit', value: (p) => p.unit },
   { header: 'Stock', value: (p) => p.current_stock, numeric: true },
   { header: 'Min Level', value: (p) => p.min_stock_level, numeric: true },
-  { header: 'Status', value: (p) => (p.stock_status === 'out' ? 'Out of stock' : p.stock_status === 'low' ? 'Low stock' : 'In stock') },
+  { header: 'Status', value: (p) => (p.is_archived ? 'Inactive' : p.stock_status === 'out' ? 'Out of stock' : p.stock_status === 'low' ? 'Low stock' : 'In stock') },
   ...(financial ? ([{ header: 'Cost Value', value: (p) => Number(p.stock_value), numeric: true }] as ExportColumn<ProductRow>[]) : []),
 ];
 
@@ -100,7 +100,8 @@ async function loadReport(id: ReportId, f: MovementFilterState, search: string, 
     case 'inventory_summary':
     case 'low_stock':
     case 'out_of_stock': {
-      let rows = filterProducts(await listAllProducts({ categoryId: f.categoryId }));
+      // Inactive products keep their stock, so they stay in the inventory summary; alerts cover active products only.
+      let rows = filterProducts(await listAllProducts({ categoryId: f.categoryId, includeArchived: id === 'inventory_summary' }));
       if (id === 'low_stock') rows = rows.filter((p) => p.stock_status === 'low');
       if (id === 'out_of_stock') rows = rows.filter((p) => p.stock_status === 'out');
       if (id !== 'inventory_summary') rows.sort((a, b) => a.current_stock - b.current_stock || a.name.localeCompare(b.name));
@@ -116,7 +117,7 @@ async function loadReport(id: ReportId, f: MovementFilterState, search: string, 
       };
     }
     case 'product': {
-      const rows = filterProducts(await listAllProducts({ categoryId: f.categoryId })).sort((a, b) => b.created_at.localeCompare(a.created_at));
+      const rows = filterProducts(await listAllProducts({ categoryId: f.categoryId, includeArchived: true })).sort((a, b) => b.created_at.localeCompare(a.created_at));
       const cols: ExportColumn<ProductRow>[] = [
         { header: 'Product ID', value: (p) => code('PRD', p.id) },
         { header: 'Product', value: (p) => p.name },
@@ -129,19 +130,20 @@ async function loadReport(id: ReportId, f: MovementFilterState, search: string, 
         { header: 'Min Level', value: (p) => p.min_stock_level, numeric: true },
         { header: 'Date Added', value: (p) => fmtDate(p.created_at) },
         { header: 'Last Updated', value: (p) => fmtDate(p.updated_at) },
+        { header: 'Status', value: (p) => (p.is_archived ? 'Inactive' : 'Active') },
       ];
       return { rows, columns: cols as ExportColumn<never>[], summary: [{ label: 'Products', value: fmtInt(rows.length) }] };
     }
     case 'category': {
-      const [cats, products] = await Promise.all([listCategories(), listAllProducts()]);
+      const [cats, products] = await Promise.all([listCategories(), listAllProducts({ includeArchived: true })]);
       const rows = cats.map((c) => {
         const ps = products.filter((p) => p.category_id === c.id);
         return {
           name: c.name,
-          products: ps.length,
+          products: ps.filter((p) => !p.is_archived).length,
           units: ps.reduce((a, p) => a + p.current_stock, 0),
-          low: ps.filter((p) => p.stock_status === 'low').length,
-          out: ps.filter((p) => p.stock_status === 'out').length,
+          low: ps.filter((p) => !p.is_archived && p.stock_status === 'low').length,
+          out: ps.filter((p) => !p.is_archived && p.stock_status === 'out').length,
           value: ps.reduce((a, p) => a + Number(p.stock_value), 0),
         };
       });

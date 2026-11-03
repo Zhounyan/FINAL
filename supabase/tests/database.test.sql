@@ -52,6 +52,9 @@ create function tests.set_time(p_ids bigint[], p_ts timestamptz) returns void la
 begin
   perform set_config('session_replication_role', 'replica', true);
   update public.stock_movements set occurred_at = p_ts where id = any (p_ids);
+  -- keep fixtures realistic: a product always exists before its movements
+  update public.products p set created_at = p_ts
+   where p.created_at > p_ts and p.id in (select product_id from public.stock_movements where id = any (p_ids));
   perform set_config('session_replication_role', 'origin', true);
 end $$;
 
@@ -426,6 +429,27 @@ select tests.as_user('00000000-0000-0000-0000-00000000000a');
 select tests.throws($$select public.login_guard('x')$$, 'permission denied', 'login guard not callable from the browser');
 select tests.throws($$select public.admin_revoke_sessions('00000000-0000-0000-0000-00000000000c')$$, 'permission denied',
   'session revocation not callable from the browser');
+reset role;
+
+-- ===========================================================================
+-- 11b. Deactivate / reactivate products
+-- ===========================================================================
+set role authenticated;
+select tests.as_user('00000000-0000-0000-0000-00000000000a');
+select public.set_product_active((select id from public.products where sku = 'BEV-002'), false);
+select tests.eq((select is_archived from public.products where sku = 'BEV-002'), true, 'admin can deactivate a product that still has stock');
+select tests.eq((select current_stock from public.products where sku = 'BEV-002'), 220, 'deactivation keeps the stock quantity');
+select tests.throws($$select public.record_sale(jsonb_build_array(jsonb_build_object('product_id', (select id from public.products where sku = 'BEV-002'), 'quantity', 1)))$$,
+  'archived', 'inactive product cannot be sold');
+select tests.throws($$select public.record_stock_in((select id from public.products where sku = 'BEV-002'), 1)$$, 'archived', 'inactive product cannot be restocked');
+select tests.ok((select count(*) from public.activity_logs where action = 'product_deactivated') = 1, 'deactivation is audit-logged');
+select tests.as_user('00000000-0000-0000-0000-00000000000b');
+select tests.throws($$select public.set_product_active(2, true)$$, 'permission', 'owner cannot reactivate products');
+select tests.as_user('00000000-0000-0000-0000-00000000000a');
+select public.set_product_active((select id from public.products where sku = 'BEV-002'), true);
+select tests.eq((select is_archived from public.products where sku = 'BEV-002'), false, 'admin can reactivate a product');
+select (public.record_stock_in((select id from public.products where sku = 'BEV-002'), 1, null, 'REACT-1', null)).id;
+select tests.eq((select current_stock from public.products where sku = 'BEV-002'), 221, 'reactivated product accepts stock again');
 reset role;
 
 -- ===========================================================================
