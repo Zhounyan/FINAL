@@ -21,9 +21,13 @@ export default function ForgotPasswordPage() {
     const { error: err } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/reset-password`,
     });
-    // Rate-limit errors are shown; unknown emails are not revealed.
+    // Rate-limit and delivery errors are shown; whether an account exists is never revealed.
     if (err && /rate|seconds/i.test(err.message)) {
       setError('Please wait a minute before requesting another reset email.');
+      return;
+    }
+    if (err && (/send|smtp|mail/i.test(err.message) || (err as { status?: number }).status === 500)) {
+      setError(`The reset email could not be sent (${err.message}). Please contact the administrator.`);
       return;
     }
     setSent(true);
