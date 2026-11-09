@@ -1,13 +1,22 @@
 import type { ReactNode } from 'react';
 import { BarChart3, Boxes, ShieldCheck } from 'lucide-react';
 import logo from '@/assets/logo.png';
+import storeFront from '@/assets/store-front.jpg';
+import storeFrontSmall from '@/assets/store-front-sm.jpg';
 
 export function AuthShell({ title, subtitle, children }: { title: string; subtitle?: ReactNode; children: ReactNode }) {
   return (
-    <div className="grid min-h-screen lg:grid-cols-[1.05fr_1fr]">
-      <div className="relative hidden overflow-hidden bg-gradient-to-br from-brand-800 via-brand-900 to-brand-950 p-12 text-white lg:flex lg:flex-col lg:justify-between">
-        <div className="pointer-events-none absolute -top-24 -right-24 size-96 rounded-full bg-brand-500/20 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-32 -left-16 size-96 rounded-full bg-wood-500/15 blur-3xl" />
+    <div className="relative grid min-h-screen bg-brand-950 lg:grid-cols-[1.05fr_1fr]">
+      {/* Bill Store storefront photo behind the whole sign-in screen */}
+      <img
+        src={storeFrontSmall}
+        srcSet={`${storeFrontSmall} 900w, ${storeFront} 1920w`}
+        sizes="100vw"
+        alt=""
+        aria-hidden
+        className="pointer-events-none fixed inset-0 h-full w-full object-cover object-center select-none"
+      />
+      <div className="relative hidden overflow-hidden bg-gradient-to-r from-brand-950/85 via-brand-950/65 to-brand-950/45 p-12 text-white lg:flex lg:flex-col lg:justify-between">
         <div className="relative flex items-center gap-3">
           <img src={logo} alt="" className="size-12 rounded-full bg-white p-0.5" />
           <span className="text-xl font-extrabold tracking-wide">INVPORTIQ</span>
@@ -26,14 +35,14 @@ export function AuthShell({ title, subtitle, children }: { title: string; subtit
         </div>
         <p className="relative text-xs text-brand-200/60">© {new Date().getFullYear()} Bill Store · INVPORTIQ</p>
       </div>
-      <div className="flex items-center justify-center bg-canvas px-4 py-10 sm:px-8">
+      <div className="relative flex items-center justify-center bg-brand-950/55 px-4 py-10 sm:px-8 lg:bg-transparent lg:bg-gradient-to-r lg:from-brand-950/45 lg:to-brand-950/35">
         <div className="w-full max-w-md animate-pop-in">
           <div className="mb-8 flex flex-col items-center text-center lg:items-start lg:text-left">
             <img src={logo} alt="Bill Store" className="mb-4 size-20 rounded-full shadow-md lg:hidden" />
-            <h1 className="text-2xl font-bold tracking-tight text-ink">{title}</h1>
-            {subtitle && <p className="mt-2 text-sm text-muted">{subtitle}</p>}
+            <h1 className="text-2xl font-bold tracking-tight text-white drop-shadow-md">{title}</h1>
+            {subtitle && <p className="mt-2 text-sm text-white/90 drop-shadow">{subtitle}</p>}
           </div>
-          <div className="rounded-2xl border border-line bg-surface p-6 shadow-card sm:p-8">{children}</div>
+          <div className="rounded-2xl border border-line bg-surface p-6 shadow-pop sm:p-8">{children}</div>
         </div>
       </div>
     </div>
