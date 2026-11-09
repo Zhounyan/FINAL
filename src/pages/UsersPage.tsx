@@ -20,6 +20,7 @@ import { Input, Select } from '@/components/ui/Field';
 import { ConfirmDialog, Modal } from '@/components/ui/Modal';
 import { Badge, Card, DetailRow, EmptyState, ErrorState, PageHeader, Pagination, SearchInput, TableWrap, Tabs } from '@/components/ui/Display';
 import { LoadingBlock } from '@/components/ui/Spinner';
+import { Avatar } from '@/components/ui/Avatar';
 import { PasswordInput, PasswordStrengthMeter } from '@/components/PasswordStrength';
 
 const strongPassword = z.string().superRefine((v, ctx) => {
@@ -123,9 +124,14 @@ function UsersPanel() {
               {q.data.rows.map((u) => (
                 <tr key={u.id}>
                   <td>
-                    <span className="font-medium">{u.full_name}</span>
-                    {u.id === me?.id && <span className="ml-1 text-xs text-muted">(you)</span>}
-                    <span className="block text-xs text-muted">{u.email}</span>
+                    <div className="flex items-center gap-3">
+                      <Avatar name={u.full_name} src={u.avatar_url} size="sm" />
+                      <div className="min-w-0">
+                        <span className="font-medium">{u.full_name}</span>
+                        {u.id === me?.id && <span className="ml-1 text-xs text-muted">(you)</span>}
+                        <span className="block text-xs text-muted">{u.email}</span>
+                      </div>
+                    </div>
                   </td>
                   <td><RoleBadge role={u.role} /></td>
                   <td>

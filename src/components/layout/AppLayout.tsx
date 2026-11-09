@@ -26,6 +26,7 @@ import { useRealtimeInvalidation, useSettings } from '@/hooks/data';
 import logo from '@/assets/logo.png';
 import { ConfirmDialog } from '../ui/Modal';
 import { NotificationBell } from './NotificationBell';
+import { Avatar } from '../ui/Avatar';
 
 interface NavItem {
   to: string;
@@ -177,14 +178,7 @@ export function AppLayout() {
         </div>
         <NotificationBell />
         <button type="button" onClick={() => navigate('/profile')} className="flex items-center gap-2.5 rounded-xl py-1.5 pr-2 pl-1.5 transition hover:bg-brand-50">
-          <span className="flex size-9 items-center justify-center rounded-full bg-brand-800 text-sm font-bold text-white">
-            {profile?.full_name
-              .split(' ')
-              .map((p) => p[0])
-              .slice(0, 2)
-              .join('')
-              .toUpperCase()}
-          </span>
+          <Avatar name={profile?.full_name} src={profile?.avatar_url} />
           <span className="hidden text-left sm:block">
             <span className="block max-w-36 truncate text-sm font-semibold text-ink">{profile?.full_name}</span>
             <span className="block text-xs text-muted">{profile ? ROLE_LABELS[profile.role] : ''}</span>

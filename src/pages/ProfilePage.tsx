@@ -1,12 +1,14 @@
+import { useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { KeyRound, UserCircle } from 'lucide-react';
+import { Camera, KeyRound, Trash2, UserCircle } from 'lucide-react';
 import { passwordPolicyError } from '@shared/password-policy';
-import { invokeFunction, updateMyProfile } from '@/lib/api';
+import { invokeFunction, updateMyAvatar, updateMyProfile } from '@/lib/api';
+import { imageFileToAvatar } from '@/lib/image';
 import { errorMessage } from '@/lib/errors';
 import { fmtDateTime } from '@/lib/format';
 import { ROLE_LABELS } from '@/lib/permissions';
@@ -16,6 +18,7 @@ import { Input } from '@/components/ui/Field';
 import { Card, DetailRow, PageHeader } from '@/components/ui/Display';
 import { PasswordInput, PasswordStrengthMeter } from '@/components/PasswordStrength';
 import { FormAlert } from './auth/AuthShell';
+import { Avatar } from '@/components/ui/Avatar';
 
 const profileSchema = z.object({
   full_name: z.string().trim().min(2, 'Full name is required').max(120),
@@ -92,6 +95,7 @@ export default function ProfilePage() {
       )}
       <div className="grid gap-6 xl:grid-cols-2">
         <Card title="Account information" bodyClassName="p-5 space-y-5">
+          <ProfilePhoto />
           <dl className="divide-y divide-line">
             <DetailRow label="Email">{profile.email}</DetailRow>
             <DetailRow label="Role">{ROLE_LABELS[profile.role]}{profile.role === 'staff' && profile.can_add_products ? ' · can add products' : ''}</DetailRow>
@@ -118,6 +122,53 @@ export default function ProfilePage() {
             </div>
           </form>
         </Card>
+      </div>
+    </div>
+  );
+}
+
+/** Upload, change or remove the signed-in user's profile photo. */
+function ProfilePhoto() {
+  const { profile, refreshProfile } = useAuth();
+  const qc = useQueryClient();
+  const input = useRef<HTMLInputElement>(null);
+  const save = useMutation({
+    mutationFn: async (file: File | null) => updateMyAvatar(file ? await imageFileToAvatar(file) : null),
+    onSuccess: async (_r, file) => {
+      await Promise.all([refreshProfile(), qc.invalidateQueries({ queryKey: ['users'] })]);
+      toast.success(file ? 'Profile photo updated.' : 'Profile photo removed.');
+    },
+    onError: (e) => toast.error(errorMessage(e, 'Could not update the photo.')),
+  });
+  if (!profile) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-5" data-testid="profile-photo">
+      <Avatar name={profile.full_name} src={profile.avatar_url} size="lg" className="shadow-card" />
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-ink">Profile photo</p>
+        <p className="text-xs text-muted">JPEG, PNG or WebP. It is cropped to a square and resized automatically.</p>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="secondary" icon={<Camera className="size-4" />} loading={save.isPending && save.variables !== null} onClick={() => input.current?.click()}>
+            {profile.avatar_url ? 'Change photo' : 'Upload photo'}
+          </Button>
+          {profile.avatar_url && (
+            <Button size="sm" variant="ghost" icon={<Trash2 className="size-4" />} loading={save.isPending && save.variables === null} onClick={() => save.mutate(null)}>
+              Remove
+            </Button>
+          )}
+        </div>
+        <input
+          ref={input}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          className="sr-only"
+          aria-label="Choose profile photo"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = '';
+            if (file) save.mutate(file);
+          }}
+        />
       </div>
     </div>
   );

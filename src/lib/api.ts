@@ -83,6 +83,11 @@ export async function fetchProfile(id: string): Promise<Profile | null> {
   return unwrap(await supabase.from('profiles').select('*').eq('id', id).maybeSingle());
 }
 
+/** Set (data URL) or remove (null) the signed-in user's profile photo. */
+export async function updateMyAvatar(avatar: string | null) {
+  return unwrap(await supabase.rpc('update_my_avatar', { p_avatar: avatar })) as Profile;
+}
+
 export async function updateMyProfile(full_name: string, phone: string) {
   return unwrap(await supabase.rpc('update_my_profile', { p_full_name: full_name, p_phone: phone }));
 }

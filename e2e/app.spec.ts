@@ -450,3 +450,26 @@ test('admin deletes an account, can recover it within 7 days', async () => {
   await expect(staffRow()).toContainText('Active');
   await expect(staffRow().getByRole('button', { name: `Delete ${STAFF.name}` })).toBeVisible();
 });
+
+test('users can upload, change and remove their profile photo', async () => {
+  await nav('Profile');
+  await expect(page.getByRole('heading', { name: 'My Profile' })).toBeVisible();
+  const photo = page.getByTestId('profile-photo');
+  await page.getByLabel('Choose profile photo').setInputFiles('public/logo-192.png');
+  await expectToast('Profile photo updated.');
+  // shown on the profile page and in the top bar
+  await expect(photo.getByRole('img', { name: `${ADMIN.name}'s photo` })).toBeVisible();
+  await expect(page.locator('header').getByRole('img', { name: `${ADMIN.name}'s photo` })).toBeVisible();
+  const src = await photo.getByRole('img').getAttribute('src');
+  expect(src).toMatch(/^data:image\/jpeg;base64,/);
+  expect(src!.length).toBeLessThan(200_000); // resized before upload
+
+  await nav('User Management');
+  await expect(page.getByTestId('users-table').getByRole('img', { name: `${ADMIN.name}'s photo` })).toBeVisible();
+
+  await nav('Profile');
+  await photo.getByRole('button', { name: 'Remove' }).click();
+  await expectToast('Profile photo removed.');
+  await expect(photo.getByRole('img')).toHaveCount(0);
+  await expect(photo.getByRole('button', { name: 'Upload photo' })).toBeVisible();
+});

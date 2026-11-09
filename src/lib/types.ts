@@ -15,6 +15,8 @@ export interface Profile {
   deletion_scheduled_at?: string | null;
   /** set once the account has been permanently deleted */
   deleted_at?: string | null;
+  /** small square profile photo (data URL) */
+  avatar_url?: string | null;
   last_login_at: string | null;
   created_at: string;
   updated_at: string;

@@ -507,6 +507,21 @@ select tests.eq((select full_name || '|' || email from public.profiles where id 
 select tests.eq((select created_by_name from public.stock_movements where reference_no = 'DEL-TEST'), 'Temp One', 'history keeps the name recorded at the time');
 select tests.ok(exists (select 1 from public.activity_logs where action = 'user_deleted'), 'permanent deletion is audit-logged');
 
+-- ===========================================================================
+-- 14. Profile photos
+-- ===========================================================================
+set role authenticated;
+select tests.as_user('00000000-0000-0000-0000-00000000000b');
+select (public.update_my_avatar('data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==')).id;
+select tests.eq((select avatar_url from public.profiles where id = auth.uid()), 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==', 'user can set own photo');
+select tests.throws($$select public.update_my_avatar('javascript:alert(1)')$$, 'JPEG, PNG or WebP', 'non-image values rejected');
+select tests.throws($$select public.update_my_avatar('data:image/svg+xml;base64,PHN2Zz4=')$$, 'JPEG, PNG or WebP', 'SVG rejected');
+select tests.throws($$select public.update_my_avatar('data:image/png;base64,' || repeat('A', 400001))$$, 'under 300 KB', 'oversized photo rejected');
+select tests.throws($$update public.profiles set avatar_url = null where id = '00000000-0000-0000-0000-00000000000a'$$, 'permission denied', 'cannot change another user''s photo directly');
+select (public.update_my_avatar(null)).id;
+select tests.eq((select avatar_url from public.profiles where id = auth.uid()), null::text, 'user can remove own photo');
+reset role;
+
 -- ---------------------------------------------------------------------------
 \set QUIET 0
 \o
