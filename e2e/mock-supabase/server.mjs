@@ -242,6 +242,7 @@ async function withRole(req, fn) {
 function buildWhere(params, values, prefix = '') {
   const clauses = [];
   const cond = (col, opval) => {
+    if (opval.startsWith('not.')) return `not (${cond(col, opval.slice(4))})`;
     const dot = opval.indexOf('.');
     const op = opval.slice(0, dot);
     const val = opval.slice(dot + 1);

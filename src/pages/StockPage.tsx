@@ -104,7 +104,9 @@ function StockInForm() {
   const products = useProductOptions();
   const suppliers = useSupplierOptions();
   const invalidate = useInvalidateInventory();
-  const [productId, setProductId] = useState<number | null>(null);
+  const [params] = useSearchParams();
+  // A notification can open this form with the product already selected (?product=<id>).
+  const [productId, setProductId] = useState<number | null>(() => (Number(params.get('product')) > 0 ? Number(params.get('product')) : null));
   const [qty, setQty] = useState('');
   const [supplierId, setSupplierId] = useState('');
   const [ref, setRef] = useState('');

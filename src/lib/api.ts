@@ -90,13 +90,30 @@ export async function updateMyProfile(full_name: string, phone: string) {
 // ---------------------------------------------------------------------------
 // Users (admin)
 // ---------------------------------------------------------------------------
+/** Days an Admin has to recover a deleted account. */
+export const ACCOUNT_RECOVERY_DAYS = 7;
+
 export async function listUsers(params: { search?: string; page: number }): Promise<Page<Profile>> {
-  let q = supabase.from('profiles').select('*', { count: 'exact' }).order('created_at', { ascending: false });
+  // Permanently remove accounts whose 7-day recovery window has passed.
+  await supabase.rpc('purge_expired_user_deletions');
+  let q = supabase
+    .from('profiles')
+    .select('*', { count: 'exact' })
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false });
   const or = params.search ? ilikeOr(['full_name', 'email'], params.search) : null;
   if (or) q = q.or(or);
   const [a, b] = range(params.page);
   const res = await q.range(a, b);
   return { rows: unwrap(res) ?? [], total: res.count ?? 0 };
+}
+
+export async function scheduleUserDeletion(userId: string) {
+  return unwrap(await supabase.rpc('schedule_user_deletion', { p_user_id: userId })) as Profile;
+}
+
+export async function recoverUserAccount(userId: string) {
+  return unwrap(await supabase.rpc('recover_user_account', { p_user_id: userId })) as Profile;
 }
 
 export type AdminUserAction =

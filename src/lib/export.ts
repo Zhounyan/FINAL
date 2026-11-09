@@ -160,3 +160,186 @@ export async function printReport<T>(rows: T[], columns: ExportColumn<T>[], meta
   if (win) win.location.href = String(url);
   else window.location.href = String(url);
 }
+
+// ---------------------------------------------------------------------------
+// Combined export: several reports in one file
+// ---------------------------------------------------------------------------
+export interface ReportSection {
+  title: string;
+  subtitle?: string;
+  rows: unknown[];
+  columns: ExportColumn<unknown>[];
+  summary?: { label: string; value: string | number }[];
+}
+
+export interface BundleMeta {
+  title: string;
+  storeName: string;
+  generatedBy?: string;
+  /** shared filters, printed on the cover / contents sheet */
+  filters?: string;
+}
+
+function sheetName(title: string, used: Set<string>): string {
+  const base = title.replace(/ Report$/, '').replace(/[\\/?*[\]:]/g, ' ').slice(0, 28).trim() || 'Report';
+  let name = base;
+  for (let i = 2; used.has(name.toLowerCase()); i++) name = `${base.slice(0, 26)} ${i}`;
+  used.add(name.toLowerCase());
+  return name;
+}
+
+/** One .xlsx workbook: a Contents sheet, then one sheet per report. */
+export async function exportExcelBundle(sections: ReportSection[], meta: BundleMeta): Promise<void> {
+  const XLSX = await import('xlsx');
+  const wb = XLSX.utils.book_new();
+  const used = new Set<string>(['contents']);
+  const names = sections.map((s) => sheetName(s.title, used));
+
+  const contents: (string | number)[][] = [
+    [meta.storeName],
+    [meta.title],
+    ...(meta.filters ? [[meta.filters]] : []),
+    [`Generated ${format(new Date(), 'MMM d, yyyy h:mm a')}${meta.generatedBy ? ` by ${meta.generatedBy}` : ''}`],
+    [],
+    ['Report', 'Sheet', 'Rows'],
+    ...sections.map((s, i) => [s.title, names[i], s.rows.length]),
+  ];
+  const cws = XLSX.utils.aoa_to_sheet(contents);
+  cws['!cols'] = [{ wch: 44 }, { wch: 30 }, { wch: 8 }];
+  XLSX.utils.book_append_sheet(wb, cws, 'Contents');
+
+  sections.forEach((s, i) => {
+    const header: (string | number)[][] = [
+      [s.title],
+      ...(s.subtitle ? [[s.subtitle]] : []),
+      ...(s.summary?.length ? [[], ...s.summary.map((x) => [x.label, x.value])] : []),
+      [],
+    ];
+    const body = [s.columns.map((c) => c.header), ...s.rows.map((r) => s.columns.map((c) => cell(c, r)))];
+    const ws = XLSX.utils.aoa_to_sheet([...header, ...body]);
+    ws['!cols'] = s.columns.map((c) => ({
+      wch: Math.min(48, Math.max(c.header.length + 2, ...s.rows.slice(0, 200).map((r) => String(cell(c, r)).length + 2))),
+    }));
+    XLSX.utils.book_append_sheet(wb, ws, names[i]);
+  });
+  XLSX.writeFile(wb, safeFileName({ title: meta.title, storeName: meta.storeName }, 'xlsx'));
+}
+
+async function buildPdfBundle(sections: ReportSection[], meta: BundleMeta) {
+  const [{ jsPDF }, autoTableMod] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+  const autoTable = autoTableMod.default;
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 40;
+  const lastY = () => (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
+
+  // Cover page
+  const logo = await logoDataUrl();
+  if (logo) doc.addImage(logo, 'PNG', margin, 40, 72, 72);
+  const tx = margin + (logo ? 88 : 0);
+  doc.setTextColor(27, 74, 43);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(22);
+  doc.text(meta.storeName, tx, 70);
+  doc.setFontSize(14);
+  doc.text(meta.title, tx, 92);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(80, 90, 85);
+  doc.text(`Generated ${format(new Date(), 'MMM d, yyyy h:mm a')}${meta.generatedBy ? ` by ${meta.generatedBy}` : ''}`, tx, 110);
+  let y = 150;
+  if (meta.filters) {
+    doc.setTextColor(20, 30, 25);
+    doc.text(doc.splitTextToSize(`Filters: ${meta.filters}`, pageWidth - margin * 2), margin, y);
+    y += 24;
+  }
+  autoTable(doc, {
+    startY: y,
+    head: [['#', 'Report', 'Rows']],
+    body: sections.map((s, i) => [String(i + 1), s.title, s.rows.length.toLocaleString('en-US')]),
+    styles: { fontSize: 10, cellPadding: 5 },
+    headStyles: { fillColor: [27, 74, 43], textColor: 255 },
+    columnStyles: { 0: { cellWidth: 30 }, 2: { halign: 'right', cellWidth: 80 } },
+    margin: { left: margin, right: margin },
+  });
+
+  // One section per report, each starting on a new page
+  for (const s of sections) {
+    doc.addPage();
+    doc.setTextColor(20, 30, 25);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.text(s.title, margin, 50);
+    y = 50;
+    if (s.subtitle) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9.5);
+      doc.setTextColor(70, 80, 75);
+      y += 16;
+      doc.text(doc.splitTextToSize(s.subtitle, pageWidth - margin * 2), margin, y);
+    }
+    if (s.summary?.length) {
+      autoTable(doc, {
+        startY: y + 10,
+        body: s.summary.map((x) => [x.label, String(x.value)]),
+        theme: 'plain',
+        styles: { fontSize: 9, cellPadding: 2.5 },
+        columnStyles: { 0: { fontStyle: 'bold', cellWidth: 160 } },
+        margin: { left: margin, right: margin },
+        tableWidth: 380,
+      });
+      y = lastY();
+    }
+    if (s.rows.length === 0) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(110);
+      doc.text('No records for the selected filters.', margin, y + 30);
+      continue;
+    }
+    autoTable(doc, {
+      startY: y + 14,
+      head: [s.columns.map((c) => c.header)],
+      body: s.rows.map((r) =>
+        s.columns.map((c) => {
+          const v = cell(c, r);
+          return typeof v === 'number' ? v.toLocaleString('en-US') : v;
+        }),
+      ),
+      styles: { fontSize: 8, cellPadding: 3.5, overflow: 'linebreak' },
+      headStyles: { fillColor: [27, 74, 43], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [243, 247, 241] },
+      columnStyles: Object.fromEntries(s.columns.map((c, i) => [i, { halign: c.align ?? (c.numeric ? 'right' : 'left') }])),
+      margin: { left: margin, right: margin, bottom: 40 },
+    });
+  }
+
+  // Footer with page numbers on every page
+  const total = doc.getNumberOfPages();
+  for (let i = 1; i <= total; i++) {
+    doc.setPage(i);
+    const h = doc.internal.pageSize.getHeight();
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(130);
+    doc.text(`${meta.storeName} · ${meta.title}`, margin, h - 20);
+    const label = `Page ${i} of ${total}`;
+    doc.text(label, pageWidth - margin - doc.getTextWidth(label), h - 20);
+  }
+  return doc;
+}
+
+/** One PDF: cover page with contents, then each report on its own pages. */
+export async function exportPdfBundle(sections: ReportSection[], meta: BundleMeta): Promise<void> {
+  const doc = await buildPdfBundle(sections, meta);
+  doc.save(safeFileName({ title: meta.title, storeName: meta.storeName }, 'pdf'));
+}
+
+export async function printBundle(sections: ReportSection[], meta: BundleMeta): Promise<void> {
+  const win = window.open('', '_blank');
+  const doc = await buildPdfBundle(sections, meta);
+  doc.autoPrint();
+  const url = doc.output('bloburl');
+  if (win) win.location.href = String(url);
+  else window.location.href = String(url);
+}

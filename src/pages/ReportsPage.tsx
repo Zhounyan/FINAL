@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
-import { FileBarChart } from 'lucide-react';
+import { FileBarChart, FileSpreadsheet, FileText, Files, Printer } from 'lucide-react';
+import { toast } from 'sonner';
 import {
   listAllProducts,
   listCategories,
@@ -13,7 +14,7 @@ import {
   movementSummary,
 } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
-import type { ExportColumn } from '@/lib/export';
+import { exportExcelBundle, exportPdfBundle, printBundle, type ExportColumn, type ReportSection } from '@/lib/export';
 import { code, fmtDate, fmtInt, fmtMoney, fmtSigned } from '@/lib/format';
 import { buildPeriod, clampToToday, type PeriodType } from '@/lib/periods';
 import type { MovementType, ProductRow, StockMovement } from '@/lib/types';
@@ -23,6 +24,8 @@ import { Card, EmptyState, ErrorState, PageHeader, Pagination, SearchInput, Tabl
 import { LoadingBlock } from '@/components/ui/Spinner';
 import { CategoryProductFilters, PeriodPicker, useFilterDescription, type MovementFilterState } from '@/components/stock/MovementFilters';
 import { ExportButtons } from '@/components/ExportButtons';
+import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
 import { breakdownColumns, movementColumns, summaryColumns } from './movementExport';
 
 type ReportId =
@@ -291,6 +294,9 @@ async function loadReport(id: ReportId, f: MovementFilterState, search: string, 
 
 const PREVIEW_PAGE = 50;
 
+/** "Low Stock Report" stays as is; "Inventory Summary" becomes "Inventory Summary Report". */
+const reportTitle = (def: ReportDef) => (/report$/i.test(def.title) ? def.title : `${def.title} Report`);
+
 export default function ReportsPage() {
   const { can, profile } = useAuth();
   const settings = useSettings();
@@ -305,6 +311,7 @@ export default function ReportsPage() {
     movementType: '',
   }));
   const [search, setSearch] = useState('');
+  const [bundleOpen, setBundleOpen] = useState(false);
   const debounced = useDebounce(search);
 
   // Fixed-period reports force their period type (derived, not stored).
@@ -339,7 +346,17 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader icon={<FileBarChart className="size-5" />} title="Reports" description="Business reports generated from live database records. Print, or export to PDF and Excel." />
+      <PageHeader
+        icon={<FileBarChart className="size-5" />}
+        title="Reports"
+        description="Business reports generated from live database records. Print, or export to PDF and Excel."
+        actions={
+          <Button icon={<Files className="size-4" />} onClick={() => setBundleOpen(true)}>
+            Export multiple reports
+          </Button>
+        }
+      />
+      {bundleOpen && <BundleExportModal today={today} onClose={() => setBundleOpen(false)} />}
       <div className="grid gap-6 xl:grid-cols-[300px_1fr]">
         <Card title="Report type" bodyClassName="p-2">
           <select className="input m-2 w-[calc(100%-1rem)] xl:hidden" value={reportId} onChange={(e) => setParams({ type: e.target.value })} aria-label="Select report">
@@ -369,7 +386,7 @@ export default function ReportsPage() {
           <Card bodyClassName="p-4 space-y-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h2 className="text-lg font-bold text-ink">{def.title} Report</h2>
+                <h2 className="text-lg font-bold text-ink">{reportTitle(def)}</h2>
                 <p className="text-sm text-muted">{def.description}</p>
               </div>
               <ExportButtons
@@ -378,7 +395,7 @@ export default function ReportsPage() {
                   rows,
                   columns: cols,
                   meta: {
-                    title: `${def.title} Report`,
+                    title: reportTitle(def),
                     subtitle,
                     storeName: settings.data?.store_name ?? 'Bill Store',
                     generatedBy: profile?.full_name,
@@ -450,5 +467,165 @@ export default function ReportsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Export several reports at once, into ONE Excel workbook (a tab per report)
+ * or ONE PDF (cover page + each report on its own pages). All selected
+ * reports share the same period and category/product filters.
+ */
+function BundleExportModal({ today, onClose }: { today: string; onClose: () => void }) {
+  const { can, profile } = useAuth();
+  const settings = useSettings();
+  const [selected, setSelected] = useState<Set<ReportId>>(() => new Set(REPORTS.map((r) => r.id)));
+  const [filters, setFilters] = useState<MovementFilterState>(() => ({
+    period: buildPeriod('monthly', today),
+    categoryId: null,
+    productId: null,
+    movementType: '',
+  }));
+  const describe = useFilterDescription(filters);
+  const [busy, setBusy] = useState<'xlsx' | 'pdf' | 'print' | null>(null);
+  const [progress, setProgress] = useState('');
+  const groups = Array.from(new Set(REPORTS.map((r) => r.group)));
+  const count = selected.size;
+
+  const toggle = (id: ReportId) =>
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const setGroup = (group: ReportDef['group'], on: boolean) =>
+    setSelected((cur) => {
+      const next = new Set(cur);
+      REPORTS.filter((r) => r.group === group).forEach((r) => (on ? next.add(r.id) : next.delete(r.id)));
+      return next;
+    });
+
+  const run = async (kind: 'xlsx' | 'pdf' | 'print') => {
+    const chosen = REPORTS.filter((r) => selected.has(r.id));
+    if (!chosen.length) {
+      toast.error('Select at least one report.');
+      return;
+    }
+    setBusy(kind);
+    try {
+      const sections: ReportSection[] = [];
+      for (const [i, def] of chosen.entries()) {
+        setProgress(`Preparing ${i + 1} of ${chosen.length}: ${def.title}…`);
+        // Fixed-period reports use the day / week / month / year containing the chosen date.
+        const period = def.period && def.period !== 'any' ? buildPeriod(def.period, filters.period.anchor) : filters.period;
+        const res = await loadReport(def.id, { ...filters, period: clampToToday(period, today) }, '', can.viewFinancials);
+        const parts: string[] = [];
+        if (def.period) parts.push(period.label);
+        if (def.categoryProduct) {
+          parts.push(describe.categoryName ? `Category: ${describe.categoryName}` : 'All categories');
+          parts.push(describe.product ? `Product: ${describe.product.name}` : 'All products');
+        }
+        if (!def.period) parts.push(`As of ${fmtDate(new Date())}`);
+        sections.push({
+          title: reportTitle(def),
+          subtitle: parts.join(' · '),
+          rows: res.rows,
+          columns: res.columns as ExportColumn<unknown>[],
+          summary: res.summary,
+        });
+      }
+      setProgress(kind === 'xlsx' ? 'Creating Excel file…' : 'Creating PDF…');
+      const meta = {
+        title: chosen.length === REPORTS.length ? 'Complete Business Report' : 'Combined Report',
+        storeName: settings.data?.store_name ?? 'Bill Store',
+        generatedBy: profile?.full_name,
+        filters: describe.text,
+      };
+      if (kind === 'xlsx') await exportExcelBundle(sections, meta);
+      else if (kind === 'pdf') await exportPdfBundle(sections, meta);
+      else await printBundle(sections, meta);
+      if (kind !== 'print') toast.success(`${chosen.length} report(s) exported to one ${kind === 'xlsx' ? 'Excel' : 'PDF'} file.`);
+    } catch (e) {
+      toast.error(errorMessage(e, 'Could not generate the reports.'));
+    } finally {
+      setBusy(null);
+      setProgress('');
+    }
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      busy={Boolean(busy)}
+      size="xl"
+      title="Export multiple reports"
+      description="Tick the reports you want. They are combined into one file: one Excel workbook (a tab per report) or one PDF."
+      footer={
+        <div className="flex w-full flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-muted" aria-live="polite">{progress || `${count} of ${REPORTS.length} reports selected`}</p>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" icon={<Printer className="size-4" />} loading={busy === 'print'} disabled={!count || Boolean(busy)} onClick={() => run('print')}>
+              Print
+            </Button>
+            <Button variant="outline" icon={<FileText className="size-4 text-red-600" />} loading={busy === 'pdf'} disabled={!count || Boolean(busy)} onClick={() => run('pdf')}>
+              One PDF
+            </Button>
+            <Button icon={<FileSpreadsheet className="size-4" />} loading={busy === 'xlsx'} disabled={!count || Boolean(busy)} onClick={() => run('xlsx')}>
+              One Excel file
+            </Button>
+          </div>
+        </div>
+      }
+    >
+      <div className="space-y-6">
+        <section>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-ink">1. Choose reports</h3>
+            <div className="flex gap-2">
+              <Button variant="secondary" size="sm" onClick={() => setSelected(new Set(REPORTS.map((r) => r.id)))}>Select all</Button>
+              <Button variant="outline" size="sm" onClick={() => setSelected(new Set())}>Clear</Button>
+            </div>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2" data-testid="bundle-report-list">
+            {groups.map((g) => {
+              const items = REPORTS.filter((r) => r.group === g);
+              const all = items.every((r) => selected.has(r.id));
+              return (
+                <fieldset key={g} className="rounded-xl border border-line p-3">
+                  <legend className="px-1">
+                    <label className="flex items-center gap-2 text-xs font-semibold tracking-wide text-muted uppercase">
+                      <input type="checkbox" className="size-4 accent-brand-700" checked={all} onChange={(e) => setGroup(g, e.target.checked)} />
+                      {g}
+                    </label>
+                  </legend>
+                  <div className="space-y-1.5">
+                    {items.map((r) => (
+                      <label key={r.id} className="flex cursor-pointer items-start gap-2 rounded-lg px-1.5 py-1 text-sm hover:bg-brand-50">
+                        <input type="checkbox" className="mt-0.5 size-4 accent-brand-700" checked={selected.has(r.id)} onChange={() => toggle(r.id)} />
+                        <span>
+                          <span className="font-medium text-ink">{r.title}</span>
+                          <span className="block text-xs text-muted">{r.description}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <h3 className="text-sm font-semibold text-ink">2. Period &amp; filters (applied to every selected report)</h3>
+          <PeriodPicker period={filters.period} onChange={(p) => setFilters({ ...filters, period: p })} today={today} />
+          <CategoryProductFilters value={filters} onChange={setFilters} showType={false} />
+          <p className="text-xs text-muted">
+            The Daily, Weekly, Monthly and Yearly movement reports use the day, week, month and year that contain the selected date. Inventory, customer and
+            supplier reports show current figures.
+          </p>
+        </section>
+      </div>
+    </Modal>
   );
 }

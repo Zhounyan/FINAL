@@ -11,6 +11,10 @@ export interface Profile {
   is_active: boolean;
   can_add_products: boolean;
   must_change_password: boolean;
+  /** set when an Admin deletes the account; recoverable for 7 days */
+  deletion_scheduled_at?: string | null;
+  /** set once the account has been permanently deleted */
+  deleted_at?: string | null;
   last_login_at: string | null;
   created_at: string;
   updated_at: string;

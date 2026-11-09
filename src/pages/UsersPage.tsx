@@ -5,11 +5,12 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Activity, Eye, KeyRound, Pencil, Power, ShieldCheck, UserPlus, Users } from 'lucide-react';
+import { Activity, Eye, KeyRound, Pencil, Power, RotateCcw, ShieldCheck, Trash2, UserPlus, Users } from 'lucide-react';
 import { passwordPolicyError } from '@shared/password-policy';
-import { adminUsers, listActivity, listUsers, PAGE_SIZE } from '@/lib/api';
+import { deletionInfo } from '@/lib/accounts';
+import { ACCOUNT_RECOVERY_DAYS, adminUsers, listActivity, listUsers, PAGE_SIZE, recoverUserAccount, scheduleUserDeletion } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
-import { fmtDateTime } from '@/lib/format';
+import { fmtDate, fmtDateTime } from '@/lib/format';
 import { ROLE_LABELS } from '@/lib/permissions';
 import type { Profile } from '@/lib/types';
 import { useAuth } from '@/auth/AuthProvider';
@@ -59,6 +60,7 @@ function UsersPanel() {
   const [resetting, setResetting] = useState<Profile | null>(null);
   const [toggling, setToggling] = useState<Profile | null>(null);
   const [viewing, setViewing] = useState<Profile | null>(null);
+  const [deleting, setDeleting] = useState<Profile | null>(null);
   const [page, setPage] = useResettingPage([debounced]);
 
   const q = useQuery({ queryKey: ['users', debounced, page], queryFn: () => listUsers({ search: debounced, page }), placeholderData: (p) => p });
@@ -69,6 +71,24 @@ function UsersPanel() {
     onSuccess: async (_r, u) => {
       toast.success(`${u.full_name} ${u.is_active ? 'deactivated' : 'activated'}.`);
       setToggling(null);
+      await refresh();
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+
+  const del = useMutation({
+    mutationFn: (u: Profile) => scheduleUserDeletion(u.id),
+    onSuccess: async (_r, u) => {
+      toast.success(`${u.full_name}'s account will be permanently deleted in ${ACCOUNT_RECOVERY_DAYS} days. You can recover it until then.`);
+      setDeleting(null);
+      await refresh();
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  const recover = useMutation({
+    mutationFn: (u: Profile) => recoverUserAccount(u.id),
+    onSuccess: async (_r, u) => {
+      toast.success(`${u.full_name}'s account was recovered.`);
       await refresh();
     },
     onError: (e) => toast.error(errorMessage(e)),
@@ -109,14 +129,38 @@ function UsersPanel() {
                   </td>
                   <td><RoleBadge role={u.role} /></td>
                   <td>
-                    {u.is_active ? <Badge tone="green">Active</Badge> : <Badge tone="red">Inactive</Badge>}
-                    {u.must_change_password && <span className="mt-1 block text-[11px] text-amber-700">Must change password</span>}
+                    {deletionInfo(u) ? (
+                      <>
+                        <Badge tone="red"><Trash2 className="size-3" /> Deletion pending</Badge>
+                        <span className="mt-1 block text-[11px] whitespace-nowrap text-red-700">
+                          Deletes {fmtDate(deletionInfo(u)!.deletesAt)} · {deletionInfo(u)!.daysLeft} day(s) left to recover
+                        </span>
+                      </>
+                    ) : u.is_active ? (
+                      <Badge tone="green">Active</Badge>
+                    ) : (
+                      <Badge tone="red">Inactive</Badge>
+                    )}
+                    {u.must_change_password && !u.deletion_scheduled_at && <span className="mt-1 block text-[11px] text-amber-700">Must change password</span>}
                   </td>
                   <td className="text-xs text-muted">{u.role === 'staff' ? (u.can_add_products ? 'Can add products' : 'Stock operations') : u.role === 'owner' ? 'Read-only' : 'Full access'}</td>
                   <td className="text-xs whitespace-nowrap text-muted">{fmtDateTime(u.last_login_at)}</td>
                   <td className="text-xs whitespace-nowrap text-muted">{fmtDateTime(u.created_at)}</td>
                   <td className="text-right whitespace-nowrap">
                     <Button variant="ghost" size="icon" onClick={() => setViewing(u)} aria-label={`View ${u.full_name}`}><Eye className="size-4" /></Button>
+                    {u.deletion_scheduled_at ? (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        icon={<RotateCcw className="size-4" />}
+                        loading={recover.isPending && recover.variables?.id === u.id}
+                        onClick={() => recover.mutate(u)}
+                        aria-label={`Recover ${u.full_name}`}
+                      >
+                        Recover
+                      </Button>
+                    ) : (
+                    <>
                     <Button variant="ghost" size="icon" onClick={() => setEditing(u)} aria-label={`Edit ${u.full_name}`}><Pencil className="size-4" /></Button>
                     {(u.role !== 'admin' || u.id === me?.id) && (
                       <Button variant="ghost" size="icon" onClick={() => setResetting(u)} aria-label={`Reset password for ${u.full_name}`} title="Reset password"><KeyRound className="size-4" /></Button>
@@ -125,6 +169,13 @@ function UsersPanel() {
                       <Button variant="ghost" size="icon" className={u.is_active ? 'hover:text-red-600' : 'hover:text-emerald-700'} onClick={() => setToggling(u)} aria-label={`${u.is_active ? 'Deactivate' : 'Activate'} ${u.full_name}`} title={u.is_active ? 'Deactivate' : 'Activate'}>
                         <Power className="size-4" />
                       </Button>
+                    )}
+                    {u.role !== 'admin' && u.id !== me?.id && (
+                      <Button variant="ghost" size="icon" className="hover:text-red-600" onClick={() => setDeleting(u)} aria-label={`Delete ${u.full_name}`} title="Delete account">
+                        <Trash2 className="size-4" />
+                      </Button>
+                    )}
+                    </>
                     )}
                   </td>
                 </tr>
@@ -139,6 +190,21 @@ function UsersPanel() {
       {editing && <EditUserModal user={editing} onClose={() => setEditing(null)} onDone={refresh} />}
       {resetting && <ResetPasswordModal user={resetting} onClose={() => setResetting(null)} onDone={refresh} />}
       {viewing && <UserDetailModal user={viewing} onClose={() => setViewing(null)} />}
+      <ConfirmDialog
+        open={Boolean(deleting)}
+        title="Delete account?"
+        message={
+          <>
+            <b className="text-ink">{deleting?.full_name}</b> ({deleting?.email}) will be signed out and blocked immediately. The account is
+            <b> permanently deleted after {ACCOUNT_RECOVERY_DAYS} days</b>; until then you can undo this with <b>Recover</b>. Their past sales and
+            stock records are kept.
+          </>
+        }
+        confirmLabel="Delete account"
+        loading={del.isPending}
+        onConfirm={() => deleting && del.mutate(deleting)}
+        onCancel={() => setDeleting(null)}
+      />
       <ConfirmDialog
         open={Boolean(toggling)}
         tone={toggling?.is_active ? 'danger' : 'primary'}

@@ -224,7 +224,10 @@ test('daily stock movements show beginning, in, sold, other out, adjustments and
 
 test('stock movement history: dependent category→product filter and all four periods', async () => {
   await nav('Stock Movement History');
+  await expect(page.getByRole('heading', { name: 'Stock Movement History' })).toBeVisible();
   await page.getByLabel('Category', { exact: true }).selectOption({ label: 'Beverages' });
+  // wait until the product picker has switched to the selected category
+  await expect(page.getByRole('combobox', { name: 'Product (in selected category)' })).toBeEnabled();
   await page.getByRole('combobox', { name: /^Product/ }).click();
   const options = page.getByRole('listbox').getByRole('option');
   await expect(options.filter({ hasText: 'Cola 1L' })).toHaveCount(1);
@@ -278,6 +281,26 @@ test('reports export to Excel and PDF', async () => {
   expect(xlsx.suggestedFilename()).toMatch(/^stock-sold-report-.*\.xlsx$/);
   const [pdf] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'PDF' }).click()]);
   expect(pdf.suggestedFilename()).toMatch(/\.pdf$/);
+
+  // Combined export: pick a few reports -> one Excel workbook with a tab per report
+  await page.getByRole('button', { name: 'Export multiple reports' }).click();
+  const bundle = page.getByRole('dialog', { name: 'Export multiple reports' });
+  await bundle.getByRole('button', { name: 'Clear' }).click();
+  for (const r of ['Inventory Summary', 'Stock-Sold Report', 'Monthly Stock Movement']) {
+    await bundle.getByTestId('bundle-report-list').getByText(r, { exact: true }).click();
+  }
+  await expect(bundle.getByText('3 of 17 reports selected')).toBeVisible();
+  const [combined] = await Promise.all([page.waitForEvent('download'), bundle.getByRole('button', { name: 'One Excel file' }).click()]);
+  expect(combined.suggestedFilename()).toMatch(/^combined-report-.*\.xlsx$/);
+  const XLSX = await import('xlsx');
+  const { readFileSync } = await import('node:fs');
+  const wb = XLSX.read(readFileSync(await combined.path()));
+  expect(wb.SheetNames).toEqual(['Contents', 'Inventory Summary', 'Stock-Sold', 'Monthly Stock Movement']);
+  // everything at once -> one PDF
+  await bundle.getByRole('button', { name: 'Select all' }).click();
+  const [allPdf] = await Promise.all([page.waitForEvent('download'), bundle.getByRole('button', { name: 'One PDF' }).click()]);
+  expect(allPdf.suggestedFilename()).toMatch(/^complete-business-report-.*\.pdf$/);
+  await bundle.getByRole('button', { name: 'Close dialog' }).click();
 
   await page.getByRole('button', { name: 'Low Stock Report' }).click();
   await expect(page.getByTestId('report-table')).toHaveCount(0); // nothing low yet
@@ -380,4 +403,50 @@ test('responsive layout on a phone', async ({ browser }) => {
   await expect(phone.getByRole('navigation', { name: 'Main navigation' })).toBeHidden();
   await phone.screenshot({ path: 'test-results/mobile-products.png', fullPage: false });
   await phone.close();
+});
+
+test('notification bell lists stock alerts and opens the right place to act', async () => {
+  await login(ADMIN.email, ADMIN.password);
+  await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
+  // make Rice 5kg low on stock (minimum is 10)
+  await nav('Stock Management');
+  await page.getByRole('tab', { name: 'Adjustment' }).click();
+  await page.getByRole('combobox', { name: /^Product/ }).click();
+  await page.getByRole('option', { name: /Rice 5kg/ }).click();
+  await page.getByLabel('New counted quantity').fill('5');
+  await page.getByLabel('Adjustment reason').fill('Count for notification test');
+  await page.getByRole('button', { name: 'Record adjustment' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Record adjustment' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'to 5' })).toBeVisible();
+
+  await page.reload();
+  const bell = page.getByRole('button', { name: /^Notifications/ });
+  await expect(bell).toHaveAccessibleName(/[1-9]\d* unread/);
+  await bell.click();
+  const notice = page.getByTestId('notification-list').getByRole('button', { name: /Rice 5kg is running low/ });
+  await expect(notice).toContainText('5 sack left');
+  await notice.click();
+  await expect(page).toHaveURL(/\/stock\?tab=stock_in&product=\d+/);
+  await expect(page.getByRole('combobox', { name: /^Product/ })).toHaveValue(/Rice 5kg/);
+});
+
+test('admin deletes an account, can recover it within 7 days', async () => {
+  await nav('User Management');
+  const staffRow = () => page.getByTestId('users-table').locator('tbody tr').filter({ hasText: STAFF.email });
+  await staffRow().getByRole('button', { name: `Delete ${STAFF.name}` }).click();
+  await expect(page.getByRole('dialog')).toContainText('permanently deleted after 7 days');
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete account' }).click();
+  await expectToast(/will be permanently deleted in 7 days/);
+  await expect(staffRow()).toContainText('Deletion pending');
+  await expect(staffRow()).toContainText('7 day(s) left to recover');
+
+  // the bell reminds the admin
+  await page.getByRole('button', { name: /^Notifications/ }).click();
+  await expect(page.getByTestId('notification-list')).toContainText(`${STAFF.name}'s account will be deleted`);
+  await page.keyboard.press('Escape');
+
+  await staffRow().getByRole('button', { name: `Recover ${STAFF.name}` }).click();
+  await expectToast(/was recovered/);
+  await expect(staffRow()).toContainText('Active');
+  await expect(staffRow().getByRole('button', { name: `Delete ${STAFF.name}` })).toBeVisible();
 });

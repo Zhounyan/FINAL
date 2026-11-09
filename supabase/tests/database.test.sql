@@ -465,6 +465,48 @@ select tests.eq((select beginning_stock from public.stock_movement_summary('2026
   'next day beginning reflects it');
 reset role;
 
+-- ===========================================================================
+-- 13. Account deletion with a 7-day recovery window
+-- ===========================================================================
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000000000e1', 'temp1@billstore.test'),
+  ('00000000-0000-0000-0000-0000000000e2', 'temp2@billstore.test');
+insert into public.profiles (id, email, full_name, role) values
+  ('00000000-0000-0000-0000-0000000000e1', 'temp1@billstore.test', 'Temp One', 'staff'),
+  ('00000000-0000-0000-0000-0000000000e2', 'temp2@billstore.test', 'Temp Two', 'staff');
+-- Temp One records stock, so their name is part of history
+set role authenticated;
+select tests.as_user('00000000-0000-0000-0000-0000000000e1');
+select (public.record_stock_out((select id from public.products where sku = 'BEV-002'), 1, 'other_out', null, 'DEL-TEST', 'Sample')).id;
+select tests.as_user('00000000-0000-0000-0000-00000000000b');
+select tests.throws($$select public.schedule_user_deletion('00000000-0000-0000-0000-0000000000e1')$$, 'permission', 'owner cannot delete accounts');
+select tests.as_user('00000000-0000-0000-0000-00000000000a');
+select tests.throws($$select public.schedule_user_deletion('00000000-0000-0000-0000-00000000000a')$$, 'own account', 'admin cannot delete own account');
+select public.schedule_user_deletion('00000000-0000-0000-0000-0000000000e1');
+select public.schedule_user_deletion('00000000-0000-0000-0000-0000000000e2');
+select tests.eq((select is_active from public.profiles where id = '00000000-0000-0000-0000-0000000000e1'), false, 'scheduled account is disabled immediately');
+select tests.throws($$select public.schedule_user_deletion('00000000-0000-0000-0000-0000000000e1')$$, 'already scheduled', 'cannot schedule twice');
+select tests.as_user('00000000-0000-0000-0000-0000000000e1');
+select tests.throws($$select public.record_stock_in(1, 1)$$, 'not active', 'scheduled account cannot work');
+select tests.as_user('00000000-0000-0000-0000-00000000000a');
+select public.recover_user_account('00000000-0000-0000-0000-0000000000e2');
+select tests.eq((select array[is_active::text, coalesce(deletion_scheduled_at::text, 'none')] from public.profiles where id = '00000000-0000-0000-0000-0000000000e2'),
+  array['true', 'none'], 'recovered within 7 days: account active again');
+select tests.eq(public.purge_expired_user_deletions(), 0, 'nothing is purged before 7 days');
+reset role;
+update public.profiles set deletion_scheduled_at = now() - interval '8 days' where id = '00000000-0000-0000-0000-0000000000e1';
+set role authenticated;
+select tests.as_user('00000000-0000-0000-0000-00000000000a');
+select tests.throws($$select public.recover_user_account('00000000-0000-0000-0000-0000000000e1')$$, 'recovery period', 'cannot recover after 7 days');
+select tests.eq(public.purge_expired_user_deletions(), 1, 'expired account is purged');
+select tests.throws($$select public.recover_user_account('00000000-0000-0000-0000-0000000000e1')$$, 'permanently deleted', 'purged account cannot be recovered');
+reset role;
+select tests.eq((select count(*)::int from auth.users where id = '00000000-0000-0000-0000-0000000000e1'), 0, 'sign-in removed after purge');
+select tests.eq((select full_name || '|' || email from public.profiles where id = '00000000-0000-0000-0000-0000000000e1'),
+  'Deleted user|deleted-00000000-0000-0000-0000-0000000000e1@deleted.invalid', 'personal details erased');
+select tests.eq((select created_by_name from public.stock_movements where reference_no = 'DEL-TEST'), 'Temp One', 'history keeps the name recorded at the time');
+select tests.ok(exists (select 1 from public.activity_logs where action = 'user_deleted'), 'permanent deletion is audit-logged');
+
 -- ---------------------------------------------------------------------------
 \set QUIET 0
 \o

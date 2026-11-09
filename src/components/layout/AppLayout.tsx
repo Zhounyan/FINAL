@@ -19,15 +19,13 @@ import {
   UserCircle,
   Users,
   X,
-  Bell,
 } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/auth/AuthProvider';
 import { ROLE_LABELS, type Capability } from '@/lib/permissions';
-import { dashboardStats } from '@/lib/api';
 import { useRealtimeInvalidation, useSettings } from '@/hooks/data';
 import logo from '@/assets/logo.png';
 import { ConfirmDialog } from '../ui/Modal';
+import { NotificationBell } from './NotificationBell';
 
 interface NavItem {
   to: string;
@@ -133,16 +131,13 @@ function Sidebar({ onNavigate, onLogout }: { onNavigate?: () => void; onLogout: 
 }
 
 export function AppLayout() {
-  const { profile, can, signOut } = useAuth();
+  const { profile, signOut } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const navigate = useNavigate();
   useRealtimeInvalidation();
   useSettings();
-
-  const alerts = useQuery({ queryKey: ['dashboard', 'stats', 14], queryFn: () => dashboardStats(14), staleTime: 30_000 });
-  const alertCount = (alerts.data?.low_stock ?? 0) + (alerts.data?.out_of_stock ?? 0);
 
   const doLogout = async () => {
     setLoggingOut(true);
@@ -180,20 +175,7 @@ export function AppLayout() {
             {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => navigate(can.viewReports ? '/reports?type=low_stock' : '/products?status=low')}
-          className="relative rounded-xl p-2.5 text-muted transition hover:bg-brand-50 hover:text-brand-800"
-          aria-label={`${alertCount} stock alerts`}
-          title="Low and out-of-stock products"
-        >
-          <Bell className="size-5" />
-          {alertCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] leading-5 font-bold text-white">
-              {alertCount > 99 ? '99+' : alertCount}
-            </span>
-          )}
-        </button>
+        <NotificationBell />
         <button type="button" onClick={() => navigate('/profile')} className="flex items-center gap-2.5 rounded-xl py-1.5 pr-2 pl-1.5 transition hover:bg-brand-50">
           <span className="flex size-9 items-center justify-center rounded-full bg-brand-800 text-sm font-bold text-white">
             {profile?.full_name
