@@ -14,7 +14,7 @@ import {
   movementSummary,
 } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
-import { exportExcelBundle, exportPdfBundle, printBundle, type ExportColumn, type ReportSection } from '@/lib/export';
+import { displayCell, exportExcelBundle, exportPdfBundle, printBundle, type ExportColumn, type ReportSection } from '@/lib/export';
 import { code, fmtDate, fmtInt, fmtMoney, fmtSigned } from '@/lib/format';
 import { buildPeriod, clampToToday, type PeriodType } from '@/lib/periods';
 import type { MovementType, ProductRow, StockMovement } from '@/lib/types';
@@ -80,14 +80,14 @@ const MOVEMENT_TYPES: Partial<Record<ReportId, MovementType[]>> = {
 
 const productColumns = (financial: boolean): ExportColumn<ProductRow>[] => [
   { header: 'Product ID', value: (p) => code('PRD', p.id) },
-  { header: 'Product', value: (p) => p.name },
+  { header: 'Product', value: (p) => p.name, wrap: true },
   { header: 'SKU', value: (p) => p.sku },
   { header: 'Category', value: (p) => p.category_name },
   { header: 'Unit', value: (p) => p.unit },
   { header: 'Stock', value: (p) => p.current_stock, numeric: true },
   { header: 'Min Level', value: (p) => p.min_stock_level, numeric: true },
   { header: 'Status', value: (p) => (p.is_archived ? 'Inactive' : p.stock_status === 'out' ? 'Out of stock' : p.stock_status === 'low' ? 'Low stock' : 'In stock') },
-  ...(financial ? ([{ header: 'Cost Value', value: (p) => Number(p.stock_value), numeric: true }] as ExportColumn<ProductRow>[]) : []),
+  ...(financial ? ([{ header: 'Cost Value', value: (p) => Number(p.stock_value), money: true }] as ExportColumn<ProductRow>[]) : []),
 ];
 
 async function loadReport(id: ReportId, f: MovementFilterState, search: string, financial: boolean): Promise<ReportResult> {
@@ -123,12 +123,12 @@ async function loadReport(id: ReportId, f: MovementFilterState, search: string, 
       const rows = filterProducts(await listAllProducts({ categoryId: f.categoryId, includeArchived: true })).sort((a, b) => b.created_at.localeCompare(a.created_at));
       const cols: ExportColumn<ProductRow>[] = [
         { header: 'Product ID', value: (p) => code('PRD', p.id) },
-        { header: 'Product', value: (p) => p.name },
+        { header: 'Product', value: (p) => p.name, wrap: true },
         { header: 'SKU / Barcode', value: (p) => p.sku },
         { header: 'Category', value: (p) => p.category_name },
         { header: 'Unit', value: (p) => p.unit },
-        ...(financial ? ([{ header: 'Purchase Price', value: (p) => Number(p.purchase_price), numeric: true }] as ExportColumn<ProductRow>[]) : []),
-        { header: 'Selling Price', value: (p) => Number(p.selling_price), numeric: true },
+        ...(financial ? ([{ header: 'Purchase Price', value: (p) => Number(p.purchase_price), money: true }] as ExportColumn<ProductRow>[]) : []),
+        { header: 'Selling Price', value: (p) => Number(p.selling_price), money: true },
         { header: 'Stock', value: (p) => p.current_stock, numeric: true },
         { header: 'Min Level', value: (p) => p.min_stock_level, numeric: true },
         { header: 'Date Added', value: (p) => fmtDate(p.created_at) },
@@ -157,7 +157,7 @@ async function loadReport(id: ReportId, f: MovementFilterState, search: string, 
         { header: 'Units on Hand', value: (r) => r.units, numeric: true },
         { header: 'Low Stock', value: (r) => r.low, numeric: true },
         { header: 'Out of Stock', value: (r) => r.out, numeric: true },
-        ...(financial ? ([{ header: 'Cost Value', value: (r) => r.value, numeric: true }] as ExportColumn<R>[]) : []),
+        ...(financial ? ([{ header: 'Cost Value', value: (r) => r.value, money: true }] as ExportColumn<R>[]) : []),
       ];
       return { rows, columns: cols as ExportColumn<never>[], summary: [{ label: 'Categories', value: rows.length }] };
     }
@@ -173,9 +173,9 @@ async function loadReport(id: ReportId, f: MovementFilterState, search: string, 
         cols = [
           ...movementColumns.slice(0, 5),
           { header: 'Qty Sold', value: (m) => Math.abs(m.quantity_change), numeric: true },
-          { header: 'Unit Price', value: (m) => Number(m.unit_price ?? 0), numeric: true },
-          { header: 'Amount', value: (m) => Math.abs(m.quantity_change) * Number(m.unit_price ?? 0), numeric: true },
-          { header: 'Customer', value: (m) => m.customer_name ?? 'Walk-in' },
+          { header: 'Unit Price', value: (m) => Number(m.unit_price ?? 0), money: true },
+          { header: 'Amount', value: (m) => Math.abs(m.quantity_change) * Number(m.unit_price ?? 0), money: true },
+          { header: 'Customer', value: (m) => m.customer_name ?? 'Walk-in', wrap: true },
           { header: 'Reference', value: (m) => m.reference_no ?? '' },
           { header: 'Recorded by', value: (m) => m.created_by_name },
         ];
@@ -189,7 +189,7 @@ async function loadReport(id: ReportId, f: MovementFilterState, search: string, 
           { header: 'Previous Qty', value: (m) => m.quantity_before, numeric: true },
           { header: 'Adjustment', value: (m) => fmtSigned(m.quantity_change), align: 'right' },
           { header: 'New Qty', value: (m) => m.quantity_after, numeric: true },
-          { header: 'Reason', value: (m) => m.reason ?? '' },
+          { header: 'Reason', value: (m) => m.reason ?? '', wrap: true },
           { header: 'Recorded by', value: (m) => m.created_by_name },
         ];
         summary.push({ label: 'Net adjustment', value: fmtSigned(rows.reduce((a, m) => a + m.quantity_change, 0)) });
@@ -259,13 +259,13 @@ async function loadReport(id: ReportId, f: MovementFilterState, search: string, 
         rows,
         columns: [
           { header: 'Customer ID', value: (c: { id: number }) => code('CUS', c.id) },
-          { header: 'Full Name', value: (c: { full_name: string }) => c.full_name },
+          { header: 'Full Name', value: (c: { full_name: string }) => c.full_name, wrap: true },
           { header: 'Contact Number', value: (c: { contact_number: string | null }) => c.contact_number ?? '' },
           { header: 'Email', value: (c: { email: string | null }) => c.email ?? '' },
-          { header: 'Address', value: (c: { address: string | null }) => c.address ?? '' },
+          { header: 'Address', value: (c: { address: string | null }) => c.address ?? '', wrap: true },
           { header: 'Purchases', value: (c: { sale_count?: number }) => Number(c.sale_count ?? 0), numeric: true },
           { header: 'Units Bought', value: (c: { total_quantity?: number }) => Number(c.total_quantity ?? 0), numeric: true },
-          { header: 'Total Spent', value: (c: { total_amount?: number }) => Number(c.total_amount ?? 0), numeric: true },
+          { header: 'Total Spent', value: (c: { total_amount?: number }) => Number(c.total_amount ?? 0), money: true },
           { header: 'Date Added', value: (c: { created_at: string }) => fmtDate(c.created_at) },
         ] as ExportColumn<never>[],
         summary: [{ label: 'Customers', value: fmtInt(total) }],
@@ -277,11 +277,11 @@ async function loadReport(id: ReportId, f: MovementFilterState, search: string, 
         rows,
         columns: [
           { header: 'Supplier ID', value: (s: { id: number }) => code('SUP', s.id) },
-          { header: 'Supplier', value: (s: { name: string }) => s.name },
-          { header: 'Contact Person', value: (s: { contact_person: string | null }) => s.contact_person ?? '' },
+          { header: 'Supplier', value: (s: { name: string }) => s.name, wrap: true },
+          { header: 'Contact Person', value: (s: { contact_person: string | null }) => s.contact_person ?? '', wrap: true },
           { header: 'Contact Number', value: (s: { contact_number: string | null }) => s.contact_number ?? '' },
           { header: 'Email', value: (s: { email: string | null }) => s.email ?? '' },
-          { header: 'Address', value: (s: { address: string | null }) => s.address ?? '' },
+          { header: 'Address', value: (s: { address: string | null }) => s.address ?? '', wrap: true },
           { header: 'Deliveries', value: (s: { delivery_count?: number }) => Number(s.delivery_count ?? 0), numeric: true },
           { header: 'Units Supplied', value: (s: { total_quantity?: number }) => Number(s.total_quantity ?? 0), numeric: true },
           { header: 'Date Added', value: (s: { created_at: string }) => fmtDate(s.created_at) },
@@ -293,6 +293,12 @@ async function loadReport(id: ReportId, f: MovementFilterState, search: string, 
 }
 
 const PREVIEW_PAGE = 50;
+
+/** Numbers and money right-aligned; long text may wrap; everything else stays on one line. */
+function cellClass(c: ExportColumn<unknown>) {
+  if (c.numeric || c.money || c.align === 'right') return 'num';
+  return c.wrap ? 'min-w-28 max-w-60 whitespace-normal' : 'whitespace-nowrap';
+}
 
 /** "Low Stock Report" stays as is; "Inventory Summary" becomes "Inventory Summary Report". */
 const reportTitle = (def: ReportDef) => (/report$/i.test(def.title) ? def.title : `${def.title} Report`);
@@ -357,7 +363,7 @@ export default function ReportsPage() {
         }
       />
       {bundleOpen && <BundleExportModal today={today} onClose={() => setBundleOpen(false)} />}
-      <div className="grid gap-6 xl:grid-cols-[300px_1fr]">
+      <div className="grid gap-6 xl:grid-cols-[240px_1fr]">
         <Card title="Report type" bodyClassName="p-2">
           <select className="input m-2 w-[calc(100%-1rem)] xl:hidden" value={reportId} onChange={(e) => setParams({ type: e.target.value })} aria-label="Select report">
             {REPORTS.map((r, i) => <option key={r.id} value={r.id}>{i + 1}. {r.title}</option>)}
@@ -440,22 +446,18 @@ export default function ReportsPage() {
               <EmptyState title="No records" message="Nothing matches the selected report filters." />
             ) : (
               <TableWrap>
-                <table className="table-base" data-testid="report-table">
+                <table className="table-base table-compact" data-testid="report-table">
                   <thead>
-                    <tr>{cols.map((c) => <th key={c.header} className={c.numeric || c.align === 'right' ? 'num' : ''}>{c.header}</th>)}</tr>
+                    <tr>{cols.map((c) => <th key={c.header} className={cellClass(c)}>{c.header}</th>)}</tr>
                   </thead>
                   <tbody>
                     {visible.map((r, i) => (
                       <tr key={i}>
-                        {cols.map((c) => {
-                          const v = c.value(r);
-                          const isMoney = /price|amount|value|spent|cost/i.test(c.header);
-                          return (
-                            <td key={c.header} className={c.numeric || c.align === 'right' ? 'num' : ''}>
-                              {c.numeric ? (isMoney ? fmtMoney(v as number) : fmtInt(v as number)) : (v ?? '')}
-                            </td>
-                          );
-                        })}
+                        {cols.map((c) => (
+                          <td key={c.header} className={cellClass(c)}>
+                            {displayCell(c, r)}
+                          </td>
+                        ))}
                       </tr>
                     ))}
                   </tbody>

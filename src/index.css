@@ -89,6 +89,19 @@
   .table-base tfoot td {
     @apply border-t-2 border-brand-200 bg-brand-50 px-4 py-3 font-semibold;
   }
+  /* denser variant for wide report tables */
+  .table-compact {
+    @apply text-[13px];
+  }
+  .table-compact thead th {
+    @apply px-3 py-2 text-[11px];
+  }
+  .table-compact tbody td {
+    @apply px-3 py-2.5;
+  }
+  .table-compact tbody tr:nth-child(even) {
+    @apply bg-brand-50/35;
+  }
   .num {
     @apply text-right tabular-nums whitespace-nowrap;
   }

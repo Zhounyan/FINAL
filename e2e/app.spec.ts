@@ -138,6 +138,7 @@ test('admin adds products with opening stock; newest product is listed first', a
     await d.getByLabel('Selling price').fill(p.price);
     await d.getByRole('spinbutton', { name: 'Opening stock', exact: true }).fill(p.opening);
     await d.getByRole('button', { name: 'Add product' }).click();
+    await expect(d).toBeHidden(); // the form closes only once the product is saved
     await expectToast(/Product added/);
   };
   await add({ name: 'Cola 1L', sku: 'BEV-001', category: 'Beverages', unit: 'bottle', min: '20', price: '55', opening: '300' });

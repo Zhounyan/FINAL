@@ -33,14 +33,14 @@ export const breakdownColumns = (group: 'product' | 'category'): ExportColumn<Br
 export const movementColumns: ExportColumn<StockMovement>[] = [
   { header: 'Date & Time', value: (m) => format(parseISO(m.occurred_at), 'yyyy-MM-dd HH:mm') },
   { header: 'Type', value: (m) => MOVEMENT_LABELS[m.movement_type] },
-  { header: 'Product', value: (m) => m.product_name },
+  { header: 'Product', value: (m) => m.product_name, wrap: true },
   { header: 'SKU', value: (m) => m.product_sku },
   { header: 'Category', value: (m) => m.category_name },
   { header: 'Before', value: (m) => m.quantity_before, numeric: true },
   { header: 'Change', value: (m) => fmtSigned(m.quantity_change), align: 'right' },
   { header: 'After', value: (m) => m.quantity_after, numeric: true },
-  { header: 'Supplier / Customer', value: (m) => m.supplier_name ?? m.customer_name ?? '' },
+  { header: 'Supplier / Customer', value: (m) => m.supplier_name ?? m.customer_name ?? '', wrap: true },
   { header: 'Reference', value: (m) => m.reference_no ?? '' },
-  { header: 'Reason', value: (m) => m.reason ?? '' },
+  { header: 'Reason', value: (m) => m.reason ?? '', wrap: true },
   { header: 'Recorded by', value: (m) => m.created_by_name },
 ];
