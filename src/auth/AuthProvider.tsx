@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
+import { authLinkHint, supabase } from '@/lib/supabase';
 import { fetchProfile, invokeFunction } from '@/lib/api';
 import { capabilities, type Capabilities } from '@/lib/permissions';
 import type { Profile } from '@/lib/types';
@@ -25,7 +25,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [recovery, setRecovery] = useState(false);
+  const [recovery, setRecovery] = useState(authLinkHint.recovery);
   const loadedFor = useRef<string | null>(null);
 
   const loadProfile = useCallback(async (userId: string | null) => {

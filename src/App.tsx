@@ -1,5 +1,7 @@
-import { lazy, Suspense, type ReactNode } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { lazy, Suspense, useEffect, useRef, type ReactNode } from 'react';
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from './auth/AuthProvider';
+import { authLinkHint } from './lib/supabase';
 import { AppLayout } from './components/layout/AppLayout';
 import { RequireAuth, RequireCapability } from './auth/guards';
 import { FullPageLoader, LoadingBlock } from './components/ui/Spinner';
@@ -32,10 +34,28 @@ function Guard({ capability, children }: { capability: Capability; children: Rea
   );
 }
 
+/** An emailed reset link may land on any page: always continue on the reset screen. */
+function RecoveryRedirect() {
+  const { recovery } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const shownLinkError = useRef(false);
+  useEffect(() => {
+    if (location.pathname === '/reset-password') return;
+    if (recovery) navigate('/reset-password', { replace: true });
+    else if (authLinkHint.error && !shownLinkError.current) {
+      shownLinkError.current = true; // show an expired/invalid link once, then let the user move on
+      navigate('/reset-password', { replace: true });
+    }
+  }, [recovery, location.pathname, navigate]);
+  return null;
+}
+
 export default function App() {
   if (!isSupabaseConfigured) return <ConfigMissing />;
   return (
     <Suspense fallback={<FullPageLoader />}>
+      <RecoveryRedirect />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/setup" element={<SetupPage />} />

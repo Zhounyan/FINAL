@@ -473,3 +473,44 @@ test('users can upload, change and remove their profile photo', async () => {
   await expect(photo.getByRole('img')).toHaveCount(0);
   await expect(photo.getByRole('button', { name: 'Upload photo' })).toBeVisible();
 });
+
+test('forgot password: emailed link opened in another browser lets the user set a new password', async ({ browser, request }) => {
+  await logout();
+  await page.goto('/forgot-password');
+  await page.getByLabel('Email address').fill(OWNER.email);
+  await page.getByRole('button', { name: 'Send reset link' }).click();
+  await expect(page.getByText(/a password reset link has been sent/)).toBeVisible();
+
+  // The link the email contains. Point it at the home page (as Supabase does when the
+  // reset page isn't in its redirect list) to prove the app still opens the reset screen.
+  const { link } = await (await request.get(`http://127.0.0.1:54400/__test/recovery-link?email=${OWNER.email}`)).json();
+  expect(link).toContain('type=recovery');
+  const homeLink = link.replace(/redirect_to=[^&]*/, `redirect_to=${encodeURIComponent('http://127.0.0.1:4180/')}`);
+
+  // Open it in a completely separate browser (e.g. the phone's mail app).
+  const phone = await browser.newContext();
+  const p = await phone.newPage();
+  await p.goto(homeLink);
+  await expect(p.getByRole('heading', { name: 'Choose a new password' })).toBeVisible();
+  const NEW_PASSWORD = 'Owner#Reset2026!';
+  await p.getByRole('textbox', { name: 'New password', exact: true }).fill(NEW_PASSWORD);
+  await p.getByLabel('Confirm new password').fill(NEW_PASSWORD);
+  await p.getByRole('button', { name: 'Update password' }).click();
+  await expect(p).toHaveURL(/\/login$/);
+  await expect(p.locator('[data-sonner-toast]').filter({ hasText: 'Password updated' })).toBeVisible();
+
+  // The new password works; the old one no longer does.
+  await p.getByLabel('Email address').fill(OWNER.email);
+  await p.getByRole('textbox', { name: 'Password', exact: true }).fill(OWNER.password);
+  await p.getByRole('button', { name: 'Sign in' }).click();
+  await expect(p.getByRole('alert').filter({ hasText: /Invalid email or password/ })).toBeVisible();
+  await p.getByRole('textbox', { name: 'Password', exact: true }).fill(NEW_PASSWORD);
+  await p.getByRole('button', { name: 'Sign in' }).click();
+  await expect(p.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
+
+  // A reset link works only once.
+  const again = await (await browser.newContext()).newPage();
+  await again.goto(link);
+  await expect(again.getByRole('heading', { name: 'Reset link invalid or expired' })).toBeVisible();
+  await phone.close();
+});

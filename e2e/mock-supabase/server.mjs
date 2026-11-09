@@ -43,6 +43,8 @@ const pool = new pg.Pool({
 // Auth state (passwords hashed with scrypt, kept in memory for the test run)
 // ---------------------------------------------------------------------------
 const users = new Map(); // id -> { id, email, hash, salt, banned_until, user_metadata, created_at }
+const recoveryTokens = new Map(); // token -> { userId, redirectTo }
+const lastRecoveryLink = new Map(); // email -> link (what the email would contain)
 const refreshTokens = new Map(); // token -> { sessionId, userId }
 
 // Credentials persist in the test database so the emulator can be restarted.
@@ -167,7 +169,39 @@ async function handleAuth(req, res, url) {
     return send(res, 204);
   }
 
-  if (p === '/recover' && req.method === 'POST') return send(res, 200, {});
+  // Password recovery: store a one-time token (the real service emails a link).
+  if (p === '/recover' && req.method === 'POST') {
+    const body = await readBody(req);
+    const u = [...users.values()].find((x) => x.email === String(body.email ?? '').toLowerCase());
+    if (u) {
+      const token = crypto.randomBytes(16).toString('hex');
+      recoveryTokens.set(token, { userId: u.id, redirectTo: url.searchParams.get('redirect_to') ?? '' });
+      lastRecoveryLink.set(u.email, `${BASE}/auth/v1/verify?token=${token}&type=recovery&redirect_to=${encodeURIComponent(url.searchParams.get('redirect_to') ?? '')}`);
+    }
+    return send(res, 200, {});
+  }
+
+  // The link inside the email: verify the token, then redirect with an implicit-flow session.
+  if (p === '/verify' && req.method === 'GET') {
+    const rec = recoveryTokens.get(url.searchParams.get('token') ?? '');
+    const redirectTo = url.searchParams.get('redirect_to') || rec?.redirectTo || 'http://127.0.0.1:4180/';
+    if (!rec) {
+      res.writeHead(303, { Location: `${redirectTo}#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired` });
+      return res.end();
+    }
+    recoveryTokens.delete(url.searchParams.get('token'));
+    const session = await createSession(users.get(rec.userId), 'recovery');
+    const hash = new URLSearchParams({
+      access_token: session.access_token,
+      expires_at: String(session.expires_at),
+      expires_in: String(session.expires_in),
+      refresh_token: session.refresh_token,
+      token_type: 'bearer',
+      type: 'recovery',
+    });
+    res.writeHead(303, { Location: `${redirectTo}#${hash}` });
+    return res.end();
+  }
 
   if (p.startsWith('/admin/users')) {
     if (!isService) return authError(res, 403, 'service role required', 'not_admin');
@@ -450,6 +484,10 @@ http
         return res.end();
       }
       if (url.pathname === '/health') return send(res, 200, { ok: true });
+      // TEST-ONLY: read the link the password-reset email would contain.
+      if (url.pathname === '/__test/recovery-link') {
+        return send(res, 200, { link: lastRecoveryLink.get(String(url.searchParams.get('email')).toLowerCase()) ?? null });
+      }
       if (url.pathname.startsWith('/auth/v1')) return await handleAuth(req, res, url);
       if (url.pathname.startsWith('/rest/v1/')) return await handleRest(req, res, url);
       if (url.pathname.startsWith('/functions/v1/')) return await handleFunction(req, res, url);

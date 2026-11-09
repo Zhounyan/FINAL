@@ -5,7 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { passwordPolicyError } from '@shared/password-policy';
-import { supabase } from '@/lib/supabase';
+import { authLinkHint, supabase } from '@/lib/supabase';
 import { invokeFunction } from '@/lib/api';
 import { useAuth } from '@/auth/AuthProvider';
 import { Button } from '@/components/ui/Button';
@@ -61,7 +61,10 @@ export default function ResetPasswordPage() {
     return (
       <AuthShell title="Reset link invalid or expired">
         <div className="space-y-4">
-          <FormAlert>This password reset link is invalid or has expired. Request a new one.</FormAlert>
+          <FormAlert>
+            This password reset link is invalid or has expired{authLinkHint.error ? ` (${authLinkHint.error})` : ''}. Reset links work once and expire after a
+            short time. Request a new one.
+          </FormAlert>
           <Link to="/forgot-password" className="text-sm font-medium text-brand-700 hover:underline">Request a new link</Link>
         </div>
       </AuthShell>
