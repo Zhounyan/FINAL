@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { clsx } from 'clsx';
 import { FileBarChart, FileSpreadsheet, FileText, Files, Printer } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -294,6 +293,17 @@ async function loadReport(id: ReportId, f: MovementFilterState, search: string, 
 
 const PREVIEW_PAGE = 50;
 
+/** A movement column whose value is 0 (shown as a quiet dash on screen; exports keep 0). */
+function cell0(c: ExportColumn<unknown>, row: unknown) {
+  return Number(c.value(row as never)) === 0;
+}
+
+/** Rows with no movement at all (e.g. quiet days in a monthly report) are shown in muted text. */
+function isQuietRow(cols: ExportColumn<unknown>[], row: unknown) {
+  const flows = cols.filter((c) => c.dashZero);
+  return flows.length > 0 && flows.every((c) => cell0(c, row));
+}
+
 /** Numbers and money right-aligned; long text may wrap; everything else stays on one line. */
 function cellClass(c: ExportColumn<unknown>) {
   if (c.numeric || c.money || c.align === 'right') return 'num';
@@ -363,111 +373,102 @@ export default function ReportsPage() {
         }
       />
       {bundleOpen && <BundleExportModal today={today} onClose={() => setBundleOpen(false)} />}
-      <div className="grid gap-6 xl:grid-cols-[240px_1fr]">
-        <Card title="Report type" bodyClassName="p-2">
-          <select className="input m-2 w-[calc(100%-1rem)] xl:hidden" value={reportId} onChange={(e) => setParams({ type: e.target.value })} aria-label="Select report">
-            {REPORTS.map((r, i) => <option key={r.id} value={r.id}>{i + 1}. {r.title}</option>)}
-          </select>
-          <nav className="hidden space-y-3 xl:block" aria-label="Reports">
-            {groups.map((g) => (
-              <div key={g}>
-                <p className="px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wider text-muted uppercase">{g}</p>
-                {REPORTS.filter((r) => r.group === g).map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => setParams({ type: r.id })}
-                    className={clsx('block w-full rounded-lg px-3 py-2 text-left text-sm transition', r.id === reportId ? 'bg-brand-800 font-medium text-white' : 'text-ink hover:bg-brand-50')}
-                    aria-current={r.id === reportId}
-                  >
-                    {r.title}
-                  </button>
-                ))}
+
+      {/* Report picker + filters in one compact card */}
+      <Card bodyClassName="p-4 space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <label className="w-full max-w-md space-y-1">
+            <span className="block text-xs font-medium text-muted">Report</span>
+            <select className="input font-medium" value={reportId} onChange={(e) => setParams({ type: e.target.value })} aria-label="Report">
+              {groups.map((g) => (
+                <optgroup key={g} label={g}>
+                  {REPORTS.filter((r) => r.group === g).map((r) => (
+                    <option key={r.id} value={r.id}>{reportTitle(r)}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </label>
+          <ExportButtons
+            disabled={!q.data}
+            build={async () => ({
+              rows,
+              columns: cols,
+              meta: {
+                title: reportTitle(def),
+                subtitle,
+                storeName: settings.data?.store_name ?? 'Bill Store',
+                generatedBy: profile?.full_name,
+                summary: q.data?.summary,
+              },
+            })}
+          />
+        </div>
+        {def.period && (
+          <PeriodPicker period={filters.period} onChange={(p) => setFilters({ ...filters, period: p })} allowTypes={def.period === 'any'} today={today} />
+        )}
+        {(def.categoryProduct || def.search) && (
+          <div className="grid gap-3 lg:grid-cols-[2fr_1fr]">
+            {def.categoryProduct ? <CategoryProductFilters value={filters} onChange={setFilters} showType={false} /> : <div />}
+            {def.search && (
+              <div className="space-y-1.5">
+                <span className="block text-sm font-medium text-ink">Search</span>
+                <SearchInput value={search} onChange={setSearch} placeholder="Filter rows…" />
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+
+      {/* Report: title, key figures, table */}
+      <Card bodyClassName="">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-line px-4 py-3">
+          <h2 className="text-base font-bold text-ink" data-testid="report-title">{reportTitle(def)}</h2>
+          <p className="text-xs text-muted">
+            {subtitle} · {fmtInt(rows.length)} row(s)
+          </p>
+        </div>
+        {q.data?.summary && q.data.summary.length > 0 && (
+          <dl className="flex flex-wrap gap-x-8 gap-y-2 border-b border-line bg-brand-50/40 px-4 py-2.5" data-testid="report-summary">
+            {q.data.summary.map((x) => (
+              <div key={x.label} className="flex items-baseline gap-2">
+                <dt className="text-xs text-muted">{x.label}</dt>
+                <dd className="text-sm font-bold text-ink tabular-nums">{x.value}</dd>
               </div>
             ))}
-          </nav>
-        </Card>
-
-        <div className="min-w-0 space-y-4">
-          <Card bodyClassName="p-4 space-y-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-bold text-ink">{reportTitle(def)}</h2>
-                <p className="text-sm text-muted">{def.description}</p>
-              </div>
-              <ExportButtons
-                disabled={!q.data}
-                build={async () => ({
-                  rows,
-                  columns: cols,
-                  meta: {
-                    title: reportTitle(def),
-                    subtitle,
-                    storeName: settings.data?.store_name ?? 'Bill Store',
-                    generatedBy: profile?.full_name,
-                    summary: q.data?.summary,
-                  },
+          </dl>
+        )}
+        {q.isError ? (
+          <ErrorState error={errorMessage(q.error)} onRetry={() => q.refetch()} />
+        ) : q.isLoading ? (
+          <LoadingBlock rows={8} />
+        ) : rows.length === 0 ? (
+          <EmptyState title="No records" message="Nothing matches the selected report filters." />
+        ) : (
+          <TableWrap>
+            <table className="table-base table-compact" data-testid="report-table">
+              <thead>
+                <tr>{cols.map((c) => <th key={c.header} className={cellClass(c)}>{c.header}</th>)}</tr>
+              </thead>
+              <tbody>
+                {visible.map((r, i) => {
+                  const quiet = isQuietRow(cols, r);
+                  return (
+                    <tr key={i} className={quiet ? 'text-muted' : undefined}>
+                      {cols.map((c) => (
+                        <td key={c.header} className={cellClass(c)}>
+                          {c.dashZero && cell0(c, r) ? <span className="text-slate-300">–</span> : displayCell(c, r)}
+                        </td>
+                      ))}
+                    </tr>
+                  );
                 })}
-              />
-            </div>
-            {def.period && (
-              <PeriodPicker period={filters.period} onChange={(p) => setFilters({ ...filters, period: p })} allowTypes={def.period === 'any'} today={today} />
-            )}
-            {(def.categoryProduct || def.search) && (
-              <div className="grid gap-3 lg:grid-cols-[2fr_1fr]">
-                {def.categoryProduct ? <CategoryProductFilters value={filters} onChange={setFilters} showType={false} /> : <div />}
-                {def.search && (
-                  <div className="space-y-1.5">
-                    <span className="block text-sm font-medium text-ink">Search</span>
-                    <SearchInput value={search} onChange={setSearch} placeholder="Filter rows…" />
-                  </div>
-                )}
-              </div>
-            )}
-          </Card>
-
-          {q.data?.summary && q.data.summary.length > 0 && (
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-              {q.data.summary.map((s) => (
-                <div key={s.label} className="rounded-xl border border-line bg-surface px-4 py-3 shadow-card">
-                  <p className="text-[11px] font-semibold tracking-wide text-muted uppercase">{s.label}</p>
-                  <p className="mt-1 text-lg font-bold text-ink tabular-nums">{s.value}</p>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <Card title={subtitle} subtitle={`${fmtInt(rows.length)} row(s)`}>
-            {q.isError ? (
-              <ErrorState error={errorMessage(q.error)} onRetry={() => q.refetch()} />
-            ) : q.isLoading ? (
-              <LoadingBlock rows={8} />
-            ) : rows.length === 0 ? (
-              <EmptyState title="No records" message="Nothing matches the selected report filters." />
-            ) : (
-              <TableWrap>
-                <table className="table-base table-compact" data-testid="report-table">
-                  <thead>
-                    <tr>{cols.map((c) => <th key={c.header} className={cellClass(c)}>{c.header}</th>)}</tr>
-                  </thead>
-                  <tbody>
-                    {visible.map((r, i) => (
-                      <tr key={i}>
-                        {cols.map((c) => (
-                          <td key={c.header} className={cellClass(c)}>
-                            {displayCell(c, r)}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </TableWrap>
-            )}
-            <Pagination page={page} pageSize={PREVIEW_PAGE} total={rows.length} onChange={setPage} />
-          </Card>
-        </div>
-      </div>
+              </tbody>
+            </table>
+          </TableWrap>
+        )}
+        <Pagination page={page} pageSize={PREVIEW_PAGE} total={rows.length} onChange={setPage} />
+      </Card>
     </div>
   );
 }

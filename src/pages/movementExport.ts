@@ -7,10 +7,10 @@ import { format, parseISO } from 'date-fns';
 export const summaryColumns = (bucket: 'day' | 'month'): ExportColumn<PeriodSummaryRow>[] => [
   { header: bucket === 'month' ? 'Month' : 'Date', value: (r) => rowLabel(r.period_start, bucket) },
   { header: 'Beginning Stock', value: (r) => Number(r.beginning_stock), numeric: true },
-  { header: 'Stock In', value: (r) => Number(r.stock_in), numeric: true },
-  { header: 'Stock Sold', value: (r) => Number(r.stock_sold), numeric: true },
-  { header: 'Other Out', value: (r) => Number(r.other_out), numeric: true },
-  { header: 'Adjustments', value: (r) => Number(r.adjustments), numeric: true },
+  { header: 'Stock In', dashZero: true, value: (r) => Number(r.stock_in), numeric: true },
+  { header: 'Stock Sold', dashZero: true, value: (r) => Number(r.stock_sold), numeric: true },
+  { header: 'Other Out', dashZero: true, value: (r) => Number(r.other_out), numeric: true },
+  { header: 'Adjustments', dashZero: true, value: (r) => Number(r.adjustments), numeric: true },
   { header: 'Ending Stock', value: (r) => Number(r.ending_stock), numeric: true },
 ];
 
@@ -23,10 +23,10 @@ export const breakdownColumns = (group: 'product' | 'category'): ExportColumn<Br
       ] as ExportColumn<BreakdownRow>[])
     : []),
   { header: 'Beginning', value: (r) => Number(r.beginning_stock), numeric: true },
-  { header: 'Received', value: (r) => Number(r.stock_in), numeric: true },
-  { header: 'Sold', value: (r) => Number(r.stock_sold), numeric: true },
-  { header: 'Other Out', value: (r) => Number(r.other_out), numeric: true },
-  { header: 'Adjusted', value: (r) => Number(r.adjustments), numeric: true },
+  { header: 'Received', dashZero: true, value: (r) => Number(r.stock_in), numeric: true },
+  { header: 'Sold', dashZero: true, value: (r) => Number(r.stock_sold), numeric: true },
+  { header: 'Other Out', dashZero: true, value: (r) => Number(r.other_out), numeric: true },
+  { header: 'Adjusted', dashZero: true, value: (r) => Number(r.adjustments), numeric: true },
   { header: 'Ending', value: (r) => Number(r.ending_stock), numeric: true },
 ];
 

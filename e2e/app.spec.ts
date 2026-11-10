@@ -276,7 +276,7 @@ test('admin can deactivate and reactivate a product', async () => {
 
 test('reports export to Excel and PDF', async () => {
   await nav('Reports');
-  await page.getByRole('button', { name: 'Stock-Sold Report' }).click();
+  await page.getByLabel('Report', { exact: true }).selectOption({ label: 'Stock-Sold Report' });
   await expect(page.getByTestId('report-table').locator('tbody tr')).toHaveCount(1);
   const [xlsx] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Excel' }).click()]);
   expect(xlsx.suggestedFilename()).toMatch(/^stock-sold-report-.*\.xlsx$/);
@@ -303,9 +303,9 @@ test('reports export to Excel and PDF', async () => {
   expect(allPdf.suggestedFilename()).toMatch(/^complete-business-report-.*\.pdf$/);
   await bundle.getByRole('button', { name: 'Close dialog' }).click();
 
-  await page.getByRole('button', { name: 'Low Stock Report' }).click();
+  await page.getByLabel('Report', { exact: true }).selectOption({ label: 'Low Stock Report' });
   await expect(page.getByTestId('report-table')).toHaveCount(0); // nothing low yet
-  await page.getByRole('button', { name: 'Yearly Stock Movement' }).click();
+  await page.getByLabel('Report', { exact: true }).selectOption({ label: 'Yearly Stock Movement Report' });
   await expect(page.getByTestId('report-table').locator('tbody tr')).toHaveCount(MONTHS_SO_FAR);
 });
 

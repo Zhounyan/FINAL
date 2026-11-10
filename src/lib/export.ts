@@ -13,6 +13,8 @@ export interface ExportColumn<T> {
   money?: boolean;
   /** long text (names, reasons, addresses) may wrap; everything else stays on one line */
   wrap?: boolean;
+  /** movement flows: a 0 is shown as a quiet dash on screen (exports keep the 0) */
+  dashZero?: boolean;
 }
 
 export interface ExportMeta {
