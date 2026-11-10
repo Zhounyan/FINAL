@@ -35,7 +35,7 @@ export function AuthShell({ title, subtitle, children }: { title: string; subtit
         </div>
         <p className="relative text-xs text-brand-200/60">© {new Date().getFullYear()} Bill Store · INVPORTIQ</p>
       </div>
-      <div className="relative flex items-center justify-center bg-brand-950/55 px-4 py-10 sm:px-8 lg:bg-transparent lg:bg-gradient-to-r lg:from-brand-950/45 lg:to-brand-950/35">
+      <div className="relative flex items-center justify-center bg-brand-950/55 px-4 pt-10 pb-24 sm:px-8 lg:bg-transparent lg:bg-gradient-to-r lg:from-brand-950/45 lg:to-brand-950/35">
         <div className="w-full max-w-md animate-pop-in">
           <div className="mb-8 flex flex-col items-center text-center lg:items-start lg:text-left">
             <img src={logo} alt="Bill Store" className="mb-4 size-20 rounded-full shadow-md lg:hidden" />

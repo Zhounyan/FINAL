@@ -186,7 +186,8 @@ export function AppLayout() {
         </button>
       </header>
 
-      <main className="mx-auto w-full max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8">
+      {/* Extra bottom space so floating badges (e.g. "Powered by Netlify") never hide the last buttons. */}
+      <main className="mx-auto w-full max-w-[1500px] px-4 pt-6 pb-24 sm:px-6 lg:px-8">
         <Outlet />
       </main>
 
