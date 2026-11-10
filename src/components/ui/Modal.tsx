@@ -65,7 +65,9 @@ export function Modal({ open, onClose, title, description, children, footer, siz
 
   if (!open) return null;
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4">
+    // On phones the dialog floats above the bottom edge (pb-24) so floating badges
+    // (e.g. the host's "Powered by" pill) or the browser's toolbar never cover its buttons.
+    <div className="fixed inset-0 z-50 flex items-end justify-center px-3 pt-6 pb-[calc(6rem+env(safe-area-inset-bottom))] sm:items-center sm:p-4">
       <div className="absolute inset-0 animate-fade-in bg-brand-950/45 backdrop-blur-[2px]" onClick={() => !busy && onClose()} aria-hidden />
       <div
         ref={panel}
@@ -74,7 +76,7 @@ export function Modal({ open, onClose, title, description, children, footer, siz
         aria-labelledby={titleId}
         tabIndex={-1}
         className={clsx(
-          'relative flex max-h-[92vh] w-full animate-pop-in flex-col rounded-t-2xl bg-surface shadow-pop outline-none sm:rounded-2xl',
+          'relative flex max-h-[calc(100dvh-8rem)] w-full animate-pop-in flex-col rounded-2xl bg-surface shadow-pop outline-none sm:max-h-[92vh]',
           widths[size],
         )}
       >
