@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
-import { AlertTriangle, Bell, CheckCheck, ChevronRight, PackageX, Trash2 } from 'lucide-react';
+import { AlertTriangle, Bell, CheckCheck, ChevronRight, DatabaseBackup, PackageX, Trash2 } from 'lucide-react';
 import { dashboardStats } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { deletionInfo } from '@/lib/accounts';
@@ -63,6 +63,24 @@ export function NotificationBell() {
     },
   });
 
+  // Admin: tell them when the latest automatic backup failed.
+  const lastAuto = useQuery({
+    queryKey: ['backups', 'last-automatic'],
+    enabled: can.manageBackups,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('backup_runs')
+        .select('id, status, error, created_at, attempt')
+        .eq('trigger', 'scheduled')
+        .neq('status', 'running')
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (error) return null;
+      return data?.[0] ?? null;
+    },
+  });
+
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
@@ -89,6 +107,17 @@ export function NotificationBell() {
       detail: out ? `0 ${a.unit} left · minimum ${fmtInt(a.min_stock_level)}` : `${fmtInt(a.current_stock)} ${a.unit} left · minimum ${fmtInt(a.min_stock_level)}`,
       action: can.recordStockIn ? 'Record stock in' : 'View product',
       to: can.recordStockIn ? `/stock?tab=stock_in&product=${a.id}` : `/products?status=${a.status}`,
+    });
+  }
+  if (lastAuto.data?.status === 'failed') {
+    notices.unshift({
+      key: `backup-failed:${lastAuto.data.id}`,
+      tone: 'red',
+      icon: <DatabaseBackup className="size-4" />,
+      title: 'The automatic weekly backup failed',
+      detail: `${fmtDate(lastAuto.data.created_at)} · attempt ${lastAuto.data.attempt} · ${String(lastAuto.data.error ?? '').slice(0, 80)}`,
+      action: 'Open Backup & Restore',
+      to: '/backups',
     });
   }
   for (const u of pending.data ?? []) {

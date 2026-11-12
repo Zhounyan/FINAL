@@ -17,8 +17,9 @@ INVPORTIQ manages products, categories, customers, suppliers, stock movements, s
 6. [Production deployment](#production-deployment)
 7. [Testing](#testing)
 8. [Security](#security)
-9. [Project structure](#project-structure)
-10. [Known limitations](#known-limitations)
+9. [Backup & Restore](#backup--restore)
+10. [Project structure](#project-structure)
+11. [Known limitations](#known-limitations)
 
 ---
 
@@ -182,12 +183,12 @@ Open http://localhost:5173. On a fresh database you are redirected to **Initial 
 | `npm run lint` | ESLint (TypeScript and React Hooks rules) |
 | `npm run typecheck` | Frontend, tooling and Edge Function TypeScript |
 | `npm test` | Vitest + React Testing Library: password policy and strength meter, period maths, the dependent category→product filter, summary cards, search sanitising, permission matrix |
-| `npm run test:db` | Applies the real migrations to a scratch PostgreSQL database, then runs **121 assertions**. It also runs a concurrency test: 20 simultaneous sales compete for 10 units |
+| `npm run test:db` | Applies the real migrations to a scratch PostgreSQL database, then runs **181 assertions**. It also runs a concurrency test: 20 simultaneous sales compete for 10 units |
 | `npm run test:e2e` | Playwright: a full browser journey against the production build |
 
 `npm run test:db` calls the RPCs as the `anon`, `authenticated` and `service_role` roles with JWT claims, the same way PostgREST does. Its assertions cover RBAC/RLS, one-time setup, ledger invariants, immutability, atomic sales, the daily/weekly/monthly/yearly/category/product report maths (including the specification's 500 → 615 example), time-zone boundaries, safeguarded deletes, lockout and deactivation.
 
-`npm run test:e2e` covers 13 scenarios:
+`npm run test:e2e` covers 21 scenarios, including:
 * setup and the live password meter;
 * master data and newest-first sorting;
 * stock in, sale, damaged stock out and adjustment;
@@ -195,7 +196,12 @@ Open http://localhost:5173. On a fresh database you are redirected to **Initial 
 * PDF and Excel export;
 * user creation, the forced password change, Owner and Staff restrictions;
 * brute-force lockout;
-* the mobile layout.
+* the mobile layout;
+* backup and restore: a scheduled run with no browser session, and duplicate-trigger protection;
+* manual backup, then download and independent checksum verification, then restore;
+* rejection of a tampered upload, and acceptance of a genuine one;
+* deletion and the schedule settings;
+* Owner and Staff are denied access.
 
 The database and e2e tests need a local PostgreSQL 15+ server. Set `PGHOST`, `PGPORT` and `PGUSER` (defaults: `/tmp`, `54329`, `postgres`).
 
@@ -215,6 +221,12 @@ The e2e suite runs the real Edge Function source and the real migrations through
 * Security headers on Edge Function responses: CORS allow-list, `no-store`, `nosniff`.
 * Audit trail: sign-ins, every master-data change (with a field-level diff), every stock operation, and user-management actions.
 
+## Backup & Restore
+
+Admins can create, download, upload and restore full backups, and a weekly automatic backup runs on the server: Supabase Cron calls the `backup-scheduler` function (default Sunday 12:00 AM, store time zone). The newest 12 weekly backups are kept. Stored copies are encrypted with AES-256-GCM and every file is checked with SHA-256. Each restore runs in a single transaction, after a pre-restore safety backup is taken. Owner and Staff cannot use any of it; the server enforces this.
+
+Deployment steps, the archive format and the disaster-recovery checklist are in [docs/BACKUP_AND_RECOVERY.md](docs/BACKUP_AND_RECOVERY.md).
+
 ## Project structure
 
 ```
@@ -227,7 +239,7 @@ src/
                    Reports, Users, Settings, Profile, auth/*
 supabase/
   migrations/      schema, triggers, business RPCs, reporting RPCs, RLS & grants
-  functions/       initial-setup, auth-login, admin-users, change-password, _shared/
+  functions/       initial-setup, auth-login, admin-users, change-password, backup-admin, backup-scheduler, _shared/
   tests/           database.test.sql, concurrency.test.sh, supabase_stub.sql (test-only)
 e2e/               Playwright specs + test-only Supabase emulator
 ```

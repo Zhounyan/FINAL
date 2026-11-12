@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
@@ -9,7 +13,16 @@
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
     "types": [],
-    "paths": { "npm:@supabase/supabase-js@2.118.0": ["./node_modules/@supabase/supabase-js"] }
+    "paths": {
+      "npm:@supabase/supabase-js@2.118.0": [
+        "./node_modules/@supabase/supabase-js"
+      ],
+      "npm:fflate@0.8.3": [
+        "./node_modules/fflate"
+      ]
+    }
   },
-  "include": ["supabase/functions/**/*.ts"]
+  "include": [
+    "supabase/functions/**/*.ts"
+  ]
 }

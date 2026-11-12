@@ -431,3 +431,11 @@ verify_jwt = false
 
 [functions.change-password]
 verify_jwt = false
+
+# Backup & Restore: backup-admin checks the caller is an active Admin itself;
+# backup-scheduler is called by Supabase Cron and checks a private cron token.
+[functions.backup-admin]
+verify_jwt = false
+
+[functions.backup-scheduler]
+verify_jwt = false

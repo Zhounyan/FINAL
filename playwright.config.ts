@@ -26,7 +26,7 @@ export default defineConfig({
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } }],
   webServer: [
     {
-      command: `${pgEnv} bash -c "scripts/db-test-reset.sh >/dev/null && node e2e/mock-supabase/server.mjs"`,
+      command: `${pgEnv} bash -c "scripts/db-test-reset.sh >/dev/null && MOCK_STORAGE_DIR=$(mktemp -d) node e2e/mock-supabase/server.mjs"`,
       url: 'http://127.0.0.1:54400/health',
       reuseExistingServer: false,
       timeout: 60_000,

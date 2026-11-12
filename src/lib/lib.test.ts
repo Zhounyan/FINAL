@@ -101,12 +101,14 @@ describe('role permissions (UI layer mirrors database RBAC)', () => {
     const c = capabilities({ role: 'owner', can_add_products: false });
     expect(c.viewReports && c.viewMovementHistory && c.viewCustomers && c.viewSuppliers).toBe(true);
     expect(c.addProducts || c.editProducts || c.recordStockIn || c.recordSale || c.manageUsers || c.manageCustomers).toBe(false);
+    expect(c.manageBackups).toBe(false);
   });
   it('staff performs stock operations and adds products only when authorised', () => {
     expect(capabilities({ role: 'staff', can_add_products: false }).addProducts).toBe(false);
     const c = capabilities({ role: 'staff', can_add_products: true });
     expect(c.addProducts && c.recordStockIn && c.recordSale && c.recordStockOut).toBe(true);
     expect(c.recordAdjustment || c.editProducts || c.manageUsers || c.manageSettings || c.viewReports).toBe(false);
+    expect(c.manageBackups).toBe(false);
   });
   it('admin manages everything', () => {
     const c = capabilities({ role: 'admin', can_add_products: false });

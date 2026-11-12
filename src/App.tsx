@@ -22,6 +22,7 @@ const CustomersPage = lazy(() => import('./pages/CustomersPage'));
 const SuppliersPage = lazy(() => import('./pages/SuppliersPage'));
 const ReportsPage = lazy(() => import('./pages/ReportsPage'));
 const UsersPage = lazy(() => import('./pages/UsersPage'));
+const BackupsPage = lazy(() => import('./pages/BackupsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
@@ -78,6 +79,7 @@ export default function App() {
           <Route path="suppliers" element={<Guard capability="viewSuppliers"><SuppliersPage /></Guard>} />
           <Route path="reports" element={<Guard capability="viewReports"><ReportsPage /></Guard>} />
           <Route path="users" element={<Guard capability="manageUsers"><UsersPage /></Guard>} />
+          <Route path="backups" element={<Guard capability="manageBackups"><BackupsPage /></Guard>} />
           <Route path="settings" element={<Guard capability="viewDashboard"><SettingsPage /></Guard>} />
           <Route path="profile" element={<Guard capability="viewDashboard"><ProfilePage /></Guard>} />
           <Route path="*" element={<Suspense fallback={null}><NotFoundPage /></Suspense>} />

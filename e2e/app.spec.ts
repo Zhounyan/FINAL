@@ -342,6 +342,7 @@ test('owner must change the temporary password and then has read-only access', a
 
   const sidebar = page.getByRole('navigation', { name: 'Main navigation' });
   await expect(sidebar.getByRole('link', { name: 'User Management' })).toHaveCount(0);
+  await expect(sidebar.getByRole('link', { name: 'Backup & Restore' })).toHaveCount(0);
   await expect(sidebar.getByRole('link', { name: 'Reports' })).toBeVisible();
   await nav('Products');
   await expect(page.getByTestId('products-table')).toBeVisible();
@@ -350,6 +351,8 @@ test('owner must change the temporary password and then has read-only access', a
   await nav('Stock Management');
   await expect(page.getByRole('tab', { name: 'Stock In' })).toHaveCount(0);
   await page.goto('/users');
+  await expect(page.getByRole('heading', { name: 'Access restricted' })).toBeVisible();
+  await page.goto('/backups');
   await expect(page.getByRole('heading', { name: 'Access restricted' })).toBeVisible();
   await logout();
 });
@@ -376,6 +379,9 @@ test('staff can record stock but cannot adjust, view history or manage users', a
   await page.goto('/movements/history');
   await expect(page.getByRole('heading', { name: 'Access restricted' })).toBeVisible();
   await page.goto('/reports');
+  await expect(page.getByRole('heading', { name: 'Access restricted' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Backup & Restore' })).toHaveCount(0);
+  await page.goto('/backups');
   await expect(page.getByRole('heading', { name: 'Access restricted' })).toBeVisible();
   await logout();
 });
@@ -473,6 +479,138 @@ test('users can upload, change and remove their profile photo', async () => {
   await expectToast('Profile photo removed.');
   await expect(photo.getByRole('img')).toHaveCount(0);
   await expect(photo.getByRole('button', { name: 'Upload photo' })).toBeVisible();
+});
+
+const MOCK = 'http://127.0.0.1:54400';
+async function apiToken(request: import('@playwright/test').APIRequestContext, email: string, password: string) {
+  const r = await request.post(`${MOCK}/auth/v1/token?grant_type=password`, { data: { email, password }, headers: { apikey: 'e2e-anon-key' } });
+  return (await r.json()).access_token as string;
+}
+
+test('weekly backup runs from the server scheduler with no browser session, once per week', async ({ request }) => {
+  // This is exactly what Supabase Cron sends every hour — no user is signed in.
+  const bad = await request.post(`${MOCK}/functions/v1/backup-scheduler`, { headers: { 'x-backup-cron-token': 'not-the-token' }, data: {} });
+  expect(bad.status()).toBe(401);
+  const { token } = await (await request.get(`${MOCK}/__test/cron-token`)).json();
+  const call = () => request.post(`${MOCK}/functions/v1/backup-scheduler`, { headers: { 'x-backup-cron-token': token }, data: { source: 'pg_cron' } }).then((r) => r.json());
+  const [a, b] = await Promise.all([call(), call()]); // simultaneous duplicate trigger
+  expect([a.status, b.status].sort()).toEqual(['in_progress', 'started']);
+  const started = a.status === 'started' ? a : b;
+  expect(started.result.status).toBe('success');
+  expect((await call()).status).toBe('already_done');
+});
+
+test('only an admin can create, download or restore backups', async ({ request }) => {
+  const anon = await request.post(`${MOCK}/functions/v1/backup-admin`, { headers: { Authorization: 'Bearer e2e-anon-key' }, data: { action: 'create' } });
+  expect(anon.status()).toBe(401);
+  for (const [email, password] of [[OWNER.email, OWNER.password], [STAFF.email, STAFF.password]]) {
+    const t = await apiToken(request, email, password);
+    for (const action of ['create', 'download', 'restore', 'delete']) {
+      const r = await request.post(`${MOCK}/functions/v1/backup-admin`, { headers: { Authorization: `Bearer ${t}` }, data: { action, id: '00000000-0000-0000-0000-000000000000', confirm: 'RESTORE' } });
+      expect(r.status(), `${email} ${action}`).toBe(403);
+    }
+    const rows = await request.get(`${MOCK}/rest/v1/backup_runs?select=id`, { headers: { Authorization: `Bearer ${t}` } });
+    expect(await rows.json(), `${email} cannot list backups`).toEqual([]);
+  }
+});
+
+test('admin backs up, downloads, verifies, restores and uploads backups', async () => {
+  await nav('Backup & Restore');
+  await expect(page.getByRole('heading', { name: 'Backup & Restore' })).toBeVisible();
+  const history = page.getByTestId('backup-history');
+  await expect(history.locator('tbody tr').filter({ hasText: 'Automatic' })).toHaveCount(1); // from the scheduler test
+
+  // Manual backup
+  await page.getByRole('button', { name: 'Create backup' }).click();
+  await expectToast(/Backup completed: InvportIQ_Full_Backup_/);
+  const manual = history.locator('tbody tr').filter({ hasText: 'Manual' }).first();
+  await expect(manual).toContainText('Successful');
+  await expect(manual).toContainText('12'); // tables
+
+  // Details: checksum and per-table counts
+  await manual.getByRole('button', { name: /details/ }).click();
+  const details = page.getByRole('dialog');
+  await expect(details).toContainText('SHA-256');
+  await expect(details).toContainText('stock_movements');
+  await details.getByRole('button', { name: 'Close dialog' }).click();
+
+  // Download and verify the archive independently
+  const [dl] = await Promise.all([page.waitForEvent('download'), manual.getByRole('button', { name: /^Download / }).click()]);
+  expect(dl.suggestedFilename()).toMatch(/^InvportIQ_Full_Backup_\d{4}-\d{2}-\d{2}_\d{4}\.zip$/);
+  const { readFileSync } = await import('node:fs');
+  const { createHash } = await import('node:crypto');
+  const { unzipSync, zipSync, strFromU8, strToU8 } = await import('fflate');
+  const zipBytes = readFileSync(await dl.path());
+  const entries = unzipSync(new Uint8Array(zipBytes));
+  const meta = JSON.parse(strFromU8(entries['metadata.json']));
+  expect(meta.table_count).toBe(12);
+  expect(Object.keys(meta.table_counts).sort()).toEqual(['activity_logs', 'auth_lockouts', 'categories', 'customers', 'products', 'profiles', 'sale_items', 'sales', 'setup_state', 'stock_movements', 'suppliers', 'system_settings']);
+  for (const [name, info] of Object.entries(meta.files as Record<string, { sha256: string }>)) {
+    expect(createHash('sha256').update(entries[name]).digest('hex'), name).toBe(info.sha256);
+  }
+  expect(strFromU8(entries['auth/users.json'])).not.toMatch(/password|encrypted/i);
+  const movementsInBackup = JSON.parse(strFromU8(entries['database/stock_movements.json'])).length;
+
+  // Change data after the backup
+  await nav('Products');
+  await page.getByRole('tab', { name: 'Categories' }).click();
+  await page.getByRole('button', { name: 'Add category' }).click();
+  await page.getByRole('dialog').getByLabel('Category name').fill('Created After Backup');
+  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+  await expectToast('Category added.');
+
+  // Restore (typed confirmation required)
+  await nav('Backup & Restore');
+  const row = page.getByTestId('backup-history').locator('tbody tr').filter({ hasText: 'Manual' }).first();
+  await row.getByRole('button', { name: /^Restore / }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('button', { name: 'Restore backup' })).toBeDisabled();
+  await dialog.getByLabel(/Type RESTORE/).fill('RESTORE');
+  await dialog.getByRole('button', { name: 'Restore backup' }).click();
+  const done = page.getByRole('dialog', { name: 'Restore completed' });
+  await expect(done).toBeVisible({ timeout: 30_000 });
+  await expect(done.getByTestId('restore-checks')).toContainText('Safety backup of the current data created');
+  await expect(done.getByTestId('restore-checks')).toContainText('Stock ledger balances for every product');
+  await done.getByRole('button', { name: 'Done' }).click();
+  await expect(page.getByTestId('backup-history').locator('tbody tr').filter({ hasText: 'Pre-restore safety' })).toHaveCount(1);
+
+  // The data is back to the backup: the later category is gone, the ledger is identical
+  await nav('Products');
+  await page.getByRole('tab', { name: 'Categories' }).click();
+  await expect(page.getByTestId('categories-table')).toBeVisible();
+  await expect(page.getByTestId('categories-table')).not.toContainText('Created After Backup');
+  await nav('Backup & Restore');
+
+  // A tampered archive is rejected; the genuine one is accepted
+  const tampered = zipSync({ ...entries, 'database/products.json': strToU8('[]') });
+  await page.getByLabel('Choose backup file to upload').setInputFiles({ name: 'tampered.zip', mimeType: 'application/zip', buffer: Buffer.from(tampered) });
+  await expectToast(/Checksum mismatch/);
+  await page.getByLabel('Choose backup file to upload').setInputFiles({ name: 'genuine.zip', mimeType: 'application/zip', buffer: zipBytes });
+  await expectToast(/Backup verified and stored/);
+  const uploaded = page.getByTestId('backup-history').locator('tbody tr').filter({ hasText: 'Uploaded' });
+  await expect(uploaded).toContainText('Successful');
+  expect(movementsInBackup).toBeGreaterThan(0);
+
+  // Weekly backup already done this week (by the server scheduler)
+  await page.getByRole('button', { name: 'Run weekly backup now' }).click();
+  await expectToast(/already completed/);
+
+  // Delete the uploaded copy
+  await uploaded.getByRole('button', { name: /^Delete / }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete backup' }).click();
+  await expectToast('Backup deleted.');
+  await expect(page.getByTestId('backup-history').locator('tbody tr').filter({ hasText: 'Uploaded' })).toHaveCount(0);
+
+  // Schedule settings
+  const overview = page.getByTestId('backup-overview');
+  await expect(overview).toContainText('Every Sunday at 12:00 AM');
+  await page.getByLabel('Automatic backup enabled').uncheck();
+  await page.getByRole('button', { name: 'Save schedule' }).click();
+  await expectToast('Automatic backup settings saved.');
+  await expect(overview).toContainText('Disabled');
+  await page.getByLabel('Automatic backup enabled').check();
+  await page.getByRole('button', { name: 'Save schedule' }).click();
+  await expect(overview).toContainText('Enabled');
 });
 
 test('forgot password: emailed link opened in another browser lets the user set a new password', async ({ browser, request }) => {

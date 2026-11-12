@@ -11,3 +11,4 @@ supabase/.branches
 supabase/.temp
 .DS_Store
 dist-e2e
+e2e/.storage-data

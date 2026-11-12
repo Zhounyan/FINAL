@@ -34,6 +34,8 @@ export function capabilities(profile: Pick<Profile, 'role' | 'can_add_products'>
     manageSuppliers: admin,
     viewReports: admin || owner,
     manageUsers: admin,
+    /** Backup & Restore: Admin only (also enforced by RLS and the backup Edge Functions) */
+    manageBackups: admin,
     manageSettings: admin,
     viewActivity: admin || owner,
     viewFinancials: admin || owner,

@@ -290,6 +290,14 @@ function buildWhere(params, values, prefix = '') {
       case 'lte': values.push(val); return `${c} <= $${values.length}`;
       case 'ilike': values.push(val.replace(/\*/g, '%')); return `${c}::text ilike $${values.length}`;
       case 'is': return `${c} is ${val === 'null' ? 'null' : val === 'true' ? 'true' : 'false'}`;
+      case 'in': {
+        const items = val.replace(/^\(/, '').replace(/\)$/, '').split(',').map((x) => x.replace(/^"|"$/g, ''));
+        const ph = items.map((it) => {
+          values.push(it);
+          return `$${values.length}`;
+        });
+        return `${c}::text in (${ph.join(', ')})`;
+      }
       default: throw Object.assign(new Error(`unsupported operator ${op}`), { code: 'PGRST100', status: 400 });
     }
   };
@@ -432,6 +440,16 @@ async function handleRest(req, res, url) {
   }
 }
 
+// Storage (private buckets on disk) — see storage.mjs
+const { createStorage } = await import('./storage.mjs');
+const handleStorage = await createStorage({
+  dir: process.env.MOCK_STORAGE_DIR ?? path.resolve(import.meta.dirname, '../.storage-data'),
+  serviceKey: SERVICE_KEY,
+  send,
+  readBody,
+  bearer,
+});
+
 // ---------------------------------------------------------------------------
 // Edge Functions: load the real sources with a Deno shim
 // ---------------------------------------------------------------------------
@@ -447,7 +465,7 @@ globalThis.Deno = {
   },
 };
 const fnDir = path.resolve(import.meta.dirname, '../../supabase/functions');
-for (const name of ['initial-setup', 'auth-login', 'admin-users', 'change-password']) {
+for (const name of ['initial-setup', 'auth-login', 'admin-users', 'change-password', 'backup-admin', 'backup-scheduler']) {
   loading = name;
   await import(pathToFileURL(path.join(fnDir, name, 'index.ts')).href);
 }
@@ -458,7 +476,7 @@ async function handleFunction(req, res, url) {
   if (!handler) return send(res, 404, { error: 'Function not found' });
   const chunks = [];
   for await (const c of req) chunks.push(c);
-  const request = new Request(`${BASE}${url.pathname}`, {
+  const request = new Request(`${BASE}${url.pathname}${url.search}`, {
     method: req.method,
     headers: req.headers,
     body: ['GET', 'HEAD', 'OPTIONS'].includes(req.method) ? undefined : Buffer.concat(chunks),
@@ -491,6 +509,14 @@ http
       if (url.pathname.startsWith('/auth/v1')) return await handleAuth(req, res, url);
       if (url.pathname.startsWith('/rest/v1/')) return await handleRest(req, res, url);
       if (url.pathname.startsWith('/functions/v1/')) return await handleFunction(req, res, url);
+      if (url.pathname.startsWith('/storage/v1/')) return await handleStorage(req, res, url);
+      // TEST-ONLY: the token the database cron job sends to the scheduler.
+      if (url.pathname === '/__test/cron-token') {
+        const r = await pool.query(
+          'insert into backup_private.cron_secret (singleton) values (true) on conflict (singleton) do update set singleton = true returning token',
+        );
+        return send(res, 200, { token: r.rows[0].token });
+      }
       if (url.pathname.startsWith('/realtime/')) return send(res, 404, {});
       return send(res, 404, { message: 'not found' });
     } catch (e) {

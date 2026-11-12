@@ -4,6 +4,9 @@ const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
 export const isSupabaseConfigured = Boolean(url && anonKey);
+/** Public project URL and anon key (used for direct Edge Function downloads/uploads). */
+export const supabaseUrl = url ?? 'http://localhost:54321';
+export const supabaseAnonKey = anonKey ?? '';
 
 // Read the emailed-link details BEFORE the client consumes and clears the URL.
 const linkParams = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.hash.replace(/^#/, ''));

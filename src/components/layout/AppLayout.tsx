@@ -15,6 +15,7 @@ import {
   Package,
   Settings,
   ShieldCheck,
+  DatabaseBackup,
   Truck,
   UserCircle,
   Users,
@@ -54,6 +55,7 @@ const NAV: NavItem[] = [
   { to: '/suppliers', label: 'Suppliers', icon: Truck, capability: 'viewSuppliers' },
   { to: '/reports', label: 'Reports', icon: FileBarChart, capability: 'viewReports' },
   { to: '/users', label: 'User Management', icon: ShieldCheck, capability: 'manageUsers' },
+  { to: '/backups', label: 'Backup & Restore', icon: DatabaseBackup, capability: 'manageBackups' },
   { to: '/settings', label: 'Settings', icon: Settings, capability: 'viewDashboard' },
   { to: '/profile', label: 'Profile', icon: UserCircle, capability: 'viewDashboard' },
 ];

@@ -522,6 +522,104 @@ select (public.update_my_avatar(null)).id;
 select tests.eq((select avatar_url from public.profiles where id = auth.uid()), null::text, 'user can remove own photo');
 reset role;
 
+-- ===========================================================================
+-- 15. Backup & restore
+-- ===========================================================================
+reset role;
+select tests.eq((select array_to_string(public.backup_table_list(), ',')),
+  'activity_logs,auth_lockouts,categories,customers,products,profiles,sale_items,sales,setup_state,stock_movements,suppliers,system_settings',
+  'backup covers all 12 application tables (and no backup_* tables)');
+create table public.zz_future_table (id int primary key);
+select tests.ok('zz_future_table' = any (public.backup_table_list()), 'tables added later are detected automatically');
+drop table public.zz_future_table;
+
+-- permissions
+set role authenticated;
+select tests.as_user('00000000-0000-0000-0000-00000000000a');
+select tests.throws($$select public.backup_export_snapshot()$$, 'permission denied', 'browser users cannot export the database directly');
+select tests.throws($$select public.backup_restore_apply('{}')$$, 'permission denied', 'browser users cannot call the restore function');
+select tests.eq((select count(*)::int from public.backup_settings), 1, 'admin can read backup settings');
+select (public.backup_update_settings(true, 0::smallint, 0::smallint, 12::smallint)).auto_enabled;
+select tests.ok(exists (select 1 from public.activity_logs where action = 'backup_settings_changed'), 'settings changes are audit-logged');
+select tests.as_user('00000000-0000-0000-0000-00000000000b');
+select tests.eq((select count(*)::int from public.backup_settings), 0, 'owner cannot see backup settings');
+select tests.throws($$select public.backup_update_settings(false, null, null, null)$$, 'permission', 'owner cannot change backup settings');
+select tests.throws($$insert into public.backup_runs (trigger, created_by_name) values ('manual', 'x')$$, 'permission denied', 'nobody can write backup history through the API');
+reset role;
+
+-- consistent snapshot of every table
+set role service_role;
+create temp table bk_snapshot as select public.backup_export_snapshot() as snap;
+reset role;
+grant select on bk_snapshot to authenticated;
+select tests.eq((select count(*)::int from jsonb_object_keys((select snap -> 'tables' from bk_snapshot))), 12, 'snapshot contains all 12 tables');
+select tests.eq((select jsonb_array_length(snap -> 'tables' -> 'stock_movements') from bk_snapshot), (select count(*)::int from public.stock_movements), 'snapshot has every stock movement');
+select tests.eq((select jsonb_array_length(snap -> 'tables' -> 'profiles') from bk_snapshot), (select count(*)::int from public.profiles), 'snapshot has every profile (incl. deleted-account placeholders)');
+select tests.ok((select bool_and(u ? 'id' and not (u ? 'encrypted_password')) from bk_snapshot, jsonb_array_elements(snap -> 'auth_users') u), 'auth list has ids but never password hashes');
+
+-- change data after the backup
+insert into public.categories (name) values ('After Backup');
+set role authenticated;
+select tests.as_user('00000000-0000-0000-0000-00000000000a');
+select (public.record_stock_in((select id from public.products where sku = 'BEV-001'), 7, null, 'AFTER-BK', null)).id;
+reset role;
+create temp table bk_before_counts as select (select count(*) from public.stock_movements) as movements, (select current_stock from public.products where sku = 'BEV-001') as cola;
+
+-- a backup that breaks a relationship is rejected and nothing changes
+set role service_role;
+select tests.throws($$select public.backup_restore_apply(jsonb_set((select snap -> 'tables' from bk_snapshot), '{sale_items,0,product_id}', '999999'))$$,
+  'break relationship', 'restore with a broken relationship is rejected');
+select tests.throws($$select public.backup_restore_apply((select snap -> 'tables' from bk_snapshot) || jsonb_build_object('products',
+    (select jsonb_agg(case when p ->> 'sku' = 'BEV-001' then jsonb_set(p, '{current_stock}', '1') else p end) from jsonb_array_elements((select snap -> 'tables' -> 'products' from bk_snapshot)) p)))$$,
+  'does not match the movement ledger', 'restore whose stock does not match the ledger is rejected');
+select tests.throws($$select public.backup_restore_apply('{"evil_table": []}')$$, 'does not exist', 'unknown tables are rejected');
+reset role;
+select tests.eq((select count(*) from public.stock_movements), (select movements from bk_before_counts), 'rejected restores left the data untouched');
+select tests.ok(exists (select 1 from public.categories where name = 'After Backup'), 'rejected restores kept the newer category');
+
+-- full restore
+set role service_role;
+create temp table bk_result as select public.backup_restore_apply((select snap -> 'tables' from bk_snapshot)) as r;
+reset role;
+select tests.eq((select (r -> 'tables' ->> 'stock_movements')::int from bk_result), (select jsonb_array_length(snap -> 'tables' -> 'stock_movements') from bk_snapshot), 'restore brings back exactly the backed-up movements');
+select tests.ok(not exists (select 1 from public.categories where name = 'After Backup'), 'data created after the backup is gone after restore');
+select tests.eq((select current_stock from public.products where sku = 'BEV-001'), (select cola from bk_before_counts) - 7, 'stock is back to the backed-up quantity');
+select tests.eq((select count(*)::int from public.products p
+                  where p.current_stock <> coalesce((select sum(quantity_change) from public.stock_movements m where m.product_id = p.id), 0)), 0,
+  'ledger balances after restore');
+select tests.eq((select count(*)::int from public.sale_items si where not exists (select 1 from public.sales s where s.id = si.sale_id)), 0, 'sale items still belong to their sales');
+select tests.eq((select avatar_url from public.profiles where id = '00000000-0000-0000-0000-00000000000b'),
+  (select p ->> 'avatar_url' from bk_snapshot, jsonb_array_elements(snap -> 'tables' -> 'profiles') p where p ->> 'id' = '00000000-0000-0000-0000-00000000000b'), 'profile photos restored');
+select tests.throws($$delete from public.stock_movements where id = (select min(id) from public.stock_movements)$$, 'permanent audit history', 'ledger protection is active again after restore');
+set role authenticated;
+select tests.as_user('00000000-0000-0000-0000-00000000000a');
+select tests.ok((public.record_stock_in((select id from public.products where sku = 'BEV-001'), 1, null, 'POST-RESTORE', null)).id > (select max((m ->> 'id')::bigint) from bk_snapshot, jsonb_array_elements(snap -> 'tables' -> 'stock_movements') m),
+  'new records continue after the restored ids');
+reset role;
+
+-- scheduler duplicates & retention
+insert into public.backup_runs (trigger, status, schedule_slot, created_by_name) values ('scheduled', 'running', '2026-11-08 00:00+08', 'Automatic scheduler');
+select tests.throws($$insert into public.backup_runs (trigger, status, schedule_slot, created_by_name) values ('scheduled', 'running', '2026-11-08 00:00+08', 'Automatic scheduler')$$,
+  'duplicate key', 'only one scheduled backup per weekly slot');
+update public.backup_runs set status = 'failed' where schedule_slot = '2026-11-08 00:00+08';
+insert into public.backup_runs (trigger, status, schedule_slot, attempt, created_by_name) values ('scheduled', 'running', '2026-11-08 00:00+08', 2, 'Automatic scheduler');
+select tests.ok(true, 'a failed scheduled backup can be retried for the same slot');
+delete from public.backup_runs;
+insert into public.backup_runs (trigger, status, schedule_slot, created_by_name, created_at)
+select 'scheduled', 'success', now() - make_interval(days => 7 * g), 'Automatic scheduler', now() - make_interval(days => 7 * g) from generate_series(1, 14) g;
+insert into public.backup_runs (trigger, status, schedule_slot, created_by_name, created_at) values ('scheduled', 'failed', now() - interval '200 days', 'Automatic scheduler', now() - interval '200 days');
+set role service_role;
+select tests.eq((select count(*)::int from public.backup_retention_candidates(12)), 2, 'retention keeps the newest 12 successful weekly backups');
+select tests.eq((select count(*)::int from public.backup_retention_candidates(12) where status <> 'success'), 0, 'failed backups never count toward retention');
+reset role;
+update public.backup_settings set restore_in_progress = (select id from public.backup_runs where status = 'success' order by created_at limit 1);
+set role service_role;
+select tests.eq((select count(*)::int from public.backup_retention_candidates(12)), 1, 'a backup being restored is never deleted by retention');
+select tests.eq(public.backup_check_cron_token('wrong-token-wrong-token-wrong-token-xx'), false, 'scheduler rejects a wrong token');
+reset role;
+update public.backup_settings set restore_in_progress = null;
+delete from public.backup_runs;
+
 -- ---------------------------------------------------------------------------
 \set QUIET 0
 \o
