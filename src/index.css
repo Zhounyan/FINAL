@@ -50,9 +50,23 @@
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;
+    /* App-like on phones: no double-tap zoom, scrolling and taps still work */
+    touch-action: manipulation;
+    overflow-x: clip;
   }
   body {
     @apply bg-canvas font-sans text-ink antialiased;
+    /* nothing may widen the page, so it never needs zooming out */
+    overflow-x: clip;
+    overscroll-behavior-x: none;
+  }
+  /* Phones zoom in when a field with text smaller than 16px gets focus. Keep fields at 16px on small screens. */
+  @media (max-width: 767px) {
+    input:not([type='checkbox']):not([type='radio']):not([type='range']),
+    select,
+    textarea {
+      font-size: 16px !important;
+    }
   }
   ::selection {
     @apply bg-brand-200 text-brand-950;

@@ -21,6 +21,17 @@ const queryClient = new QueryClient({
   },
 });
 
+// Fixed-size layout on phones: Safari ignores user-scalable=no, so also block its pinch gesture.
+// Two-finger zoom is cancelled; normal one-finger scrolling (including wide tables) is unaffected.
+document.addEventListener('gesturestart', (e) => e.preventDefault());
+document.addEventListener(
+  'touchmove',
+  (e) => {
+    if (e.touches.length > 1) e.preventDefault();
+  },
+  { passive: false },
+);
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>

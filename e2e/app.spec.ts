@@ -409,6 +409,36 @@ test('responsive layout on a phone', async ({ browser }) => {
   await expect(phone.getByRole('heading', { name: 'Products', exact: true })).toBeVisible();
   await expect(phone.getByRole('navigation', { name: 'Main navigation' })).toBeHidden();
   await phone.screenshot({ path: 'test-results/mobile-products.png', fullPage: false });
+
+  // Fixed size on phones: zoom is disabled, fields are 16px (no focus zoom),
+  // and nothing on any page sticks out past the screen edge.
+  expect(await phone.locator('meta[name=viewport]').getAttribute('content')).toContain('user-scalable=no');
+  for (const path of ['/', '/products', '/stock', '/movements/daily', '/movements/history', '/customers', '/suppliers', '/reports', '/users', '/backups', '/settings', '/profile']) {
+    await phone.goto(path);
+    await expect(phone.locator('main h1').first()).toBeVisible();
+    await phone.waitForTimeout(300);
+    const problems = await phone.evaluate(() => {
+      const w = window.innerWidth;
+      const out: string[] = [];
+      const scrollsX = (el: Element | null): boolean => {
+        for (let p = el?.parentElement; p; p = p.parentElement) {
+          const o = getComputedStyle(p).overflowX;
+          if (o === 'auto' || o === 'scroll' || o === 'hidden') return true;
+        }
+        return false;
+      };
+      for (const el of document.querySelectorAll('main *')) {
+        const r = el.getBoundingClientRect();
+        if (r.width > 0 && r.right > w + 1 && !scrollsX(el)) out.push(`${el.tagName}.${String((el as HTMLElement).className).slice(0, 60)} right=${Math.round(r.right)}`);
+      }
+      for (const el of document.querySelectorAll('main input:not([type=checkbox]):not([type=radio]), main select, main textarea')) {
+        const fs = parseFloat(getComputedStyle(el).fontSize);
+        if (fs < 16) out.push(`${el.tagName} font ${fs}px`);
+      }
+      return out.slice(0, 5);
+    });
+    expect(problems, path).toEqual([]);
+  }
   await phone.close();
 });
 

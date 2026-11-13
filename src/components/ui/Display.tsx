@@ -12,7 +12,7 @@ export function Card({ children, className, title, actions, subtitle, bodyClassN
   bodyClassName?: string;
 }) {
   return (
-    <section className={clsx('rounded-2xl border border-line bg-surface shadow-card', className)}>
+    <section className={clsx('min-w-0 rounded-2xl border border-line bg-surface shadow-card', className)}>
       {(title || actions) && (
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3.5">
           <div className="min-w-0">
