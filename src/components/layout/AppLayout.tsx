@@ -23,7 +23,6 @@ import {
   ShoppingCart,
   Truck,
   UserCircle,
-  Users,
   X,
 } from 'lucide-react';
 import { useAuth } from '@/auth/AuthProvider';
@@ -75,7 +74,6 @@ const ADMIN_NAV: NavItem[] = [
     ],
   },
   { to: '/suppliers', label: 'Suppliers', icon: Truck, capability: 'viewSuppliers' },
-  { to: '/customers', label: 'Customers', icon: Users, capability: 'viewCustomers' },
   { to: '/users', label: 'User Management', icon: ShieldCheck, capability: 'manageUsers' },
   { to: '/activity', label: 'Activity Logs', icon: Activity, capability: 'viewActivity' },
   { to: '/settings', label: 'Settings', icon: Settings, capability: 'manageSettings' },

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchSettings, listAllProducts, listCategories, listCustomerOptions, listSupplierOptions } from '@/lib/api';
+import { fetchSettings, listAllProducts, listCategories, listSupplierOptions } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { setCurrency } from '@/lib/format';
 import { useAuth } from '@/auth/AuthProvider';
@@ -35,10 +35,6 @@ export function useProductOptions(categoryId?: number | null, includeArchived = 
     queryFn: () => listAllProducts({ categoryId, includeArchived }),
     staleTime: 30_000,
   });
-}
-
-export function useCustomerOptions(enabled = true) {
-  return useQuery({ queryKey: ['customers', 'options'], queryFn: listCustomerOptions, staleTime: 60_000, enabled });
 }
 
 export function useSupplierOptions(enabled = true) {

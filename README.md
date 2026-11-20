@@ -52,7 +52,7 @@ Browser (React SPA, anon key only)
 
 ### Database tables
 
-`profiles`, `categories`, `products`, `customers`, `suppliers`, `sales`, `sale_items`, `stock_movements`, `activity_logs`, `system_settings`, plus `setup_state` (one-time setup lock) and `auth_lockouts` (brute-force protection).
+`profiles`, `categories`, `products`, `customers` (kept for older sales; the POS records an optional customer name), `suppliers`, `sales`, `sale_items`, `stock_movements`, `activity_logs`, `system_settings`, plus `setup_state` (one-time setup lock) and `auth_lockouts` (brute-force protection).
 Read models: `product_overview`, `customer_overview`, `supplier_overview` (all `security_invoker`).
 Migrations: `supabase/migrations/*.sql`.
 
@@ -70,7 +70,7 @@ There are exactly two roles: one **Administrator** and any number of **Cashiers*
 | Sales transactions & invoices (view / print / PDF / Word) | all | own only |
 | Void a transaction (stock is returned through the ledger) | ✅ | – |
 | Sales reports and Stock Management reports (daily / weekly / monthly) | ✅ | – |
-| Suppliers, customers | ✅ | – |
+| Suppliers | ✅ | – |
 | Cashier accounts (add, edit, deactivate, reset password, delete/recover) | ✅ | – |
 | Activity logs, settings, Backup & Restore | ✅ | own activity only |
 | Own profile and password | ✅ | ✅ |
@@ -188,7 +188,7 @@ Open http://localhost:5173. On a fresh database you are redirected to **Initial 
 `npm run test:db` calls the RPCs as the `anon`, `authenticated` and `service_role` roles with JWT claims, the same way PostgREST does. Its assertions cover RBAC/RLS, one-time setup, ledger invariants, immutability, atomic sales, the daily/weekly/monthly/yearly/category/product report maths (including the specification's 500 → 615 example), time-zone boundaries, safeguarded deletes, lockout and deactivation.
 
 `npm run test:e2e` covers 23 scenarios, including:
-* setup and the live password meter; categories, suppliers, customers;
+* setup and the live password meter; categories and suppliers;
 * products with barcode, supplier, image and opening stock; duplicate SKU and barcode refused;
 * two cashier accounts (one username-only), forced password change, cashier-only navigation and blocked admin pages;
 * Stock-In and Stock-Out with IN-/OUT- reference numbers, negative stock prevented, inventory totals, movement history and a single reversal;
@@ -233,7 +233,7 @@ src/
   lib/             api (all Supabase calls), types, periods, documents (print / PDF / Word), invoice, export (PDF/Excel lists), permissions, format
   pages/           POS, Dashboard (admin / cashier), Products (with inventory totals & stock adjustment), Categories, Stock-In / Stock-Out,
                    Stock Movement History, Sales Transactions & Invoices (one page), Sales Reports, Stock Reports,
-                   Customers, Suppliers, Users, Activity Logs, Settings, Backup & Restore, Profile, auth/*
+                   Suppliers, Users, Activity Logs, Settings, Backup & Restore, Profile, auth/*
 supabase/
   migrations/      schema, triggers, business RPCs, reporting RPCs, RLS & grants
   functions/       initial-setup, auth-login (username or e-mail), admin-users (cashier accounts), change-password, backup-admin, backup-scheduler, _shared/

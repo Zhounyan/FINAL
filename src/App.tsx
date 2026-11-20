@@ -23,7 +23,6 @@ const StockMovementHistoryPage = lazy(() => import('./pages/StockMovementHistory
 const StockReportPage = lazy(() => import('./pages/StockReportPage'));
 const SalesReportPage = lazy(() => import('./pages/SalesReportPage'));
 const SalesListPage = lazy(() => import('./pages/SalesListPage'));
-const CustomersPage = lazy(() => import('./pages/CustomersPage'));
 const SuppliersPage = lazy(() => import('./pages/SuppliersPage'));
 const UsersPage = lazy(() => import('./pages/UsersPage'));
 const ActivityLogsPage = lazy(() => import('./pages/ActivityLogsPage'));
@@ -96,7 +95,7 @@ export default function App() {
           <Route path="sales-reports/daily" element={<Guard capability="viewSalesReports"><SalesReportPage period="daily" /></Guard>} />
           <Route path="sales-reports/weekly" element={<Guard capability="viewSalesReports"><SalesReportPage period="weekly" /></Guard>} />
           <Route path="sales-reports/monthly" element={<Guard capability="viewSalesReports"><SalesReportPage period="monthly" /></Guard>} />
-          <Route path="customers" element={<Guard capability="viewCustomers"><CustomersPage /></Guard>} />
+          <Route path="customers" element={<Navigate to="/" replace />} />
           <Route path="suppliers" element={<Guard capability="viewSuppliers"><SuppliersPage /></Guard>} />
           <Route path="users" element={<Guard capability="manageUsers"><UsersPage /></Guard>} />
           <Route path="activity" element={<Guard capability="viewActivity"><ActivityLogsPage /></Guard>} />

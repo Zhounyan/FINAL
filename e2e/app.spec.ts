@@ -128,7 +128,7 @@ test('initial setup cannot be repeated by visiting its URL', async () => {
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
 });
 
-test('admin manages categories, suppliers and customers (newest first)', async () => {
+test('admin manages categories and suppliers (newest first)', async () => {
   await nav('Categories');
   for (const name of ['Beverages', 'Food Products', 'Snacks']) {
     await page.getByRole('button', { name: 'Add category' }).click();
@@ -150,11 +150,8 @@ test('admin manages categories, suppliers and customers (newest first)', async (
   await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
   await expectToast('Supplier added.');
 
-  await nav('Customers');
-  await page.getByRole('button', { name: 'Add customer' }).first().click();
-  await page.getByRole('dialog').getByLabel('Full name').fill('Juan Dela Cruz');
-  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
-  await expectToast('Customer added.');
+  // the Customers module was removed (the POS keeps an optional customer name on each sale)
+  await expect(page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Customers', exact: true })).toHaveCount(0);
 });
 
 test('admin adds products with barcode, supplier, image and opening stock; codes are unique', async () => {
@@ -556,7 +553,7 @@ test('responsive layout on a phone', async ({ browser }) => {
   await phone.getByRole('button', { name: 'Remove Cola 1L' }).click();
 
   expect(await phone.locator('meta[name=viewport]').getAttribute('content')).toContain('user-scalable=no');
-  for (const path of ['/', '/pos', '/products', '/categories', '/stock/in', '/stock/out', '/stock/history', '/stock/reports/daily', '/sales', '/sales-reports/daily', '/suppliers', '/customers', '/users', '/activity', '/settings', '/backups', '/profile']) {
+  for (const path of ['/', '/pos', '/products', '/categories', '/stock/in', '/stock/out', '/stock/history', '/stock/reports/daily', '/sales', '/sales-reports/daily', '/suppliers', '/users', '/activity', '/settings', '/backups', '/profile']) {
     await phone.goto(path);
     await expect(phone.locator('main h1').first(), path).toBeVisible();
     await phone.waitForTimeout(300);

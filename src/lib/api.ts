@@ -6,7 +6,6 @@ import type {
   AdminDashboard,
   CashierDashboard,
   Category,
-  Customer,
   DashboardStats,
   MovementType,
   PaymentMethod,
@@ -274,43 +273,6 @@ export async function restoreProduct(id: number) {
 // ---------------------------------------------------------------------------
 // Customers & suppliers
 // ---------------------------------------------------------------------------
-export async function listCustomers(p: { search?: string; page: number; archived?: boolean; pageSize?: number }): Promise<Page<Customer>> {
-  let q = supabase
-    .from('customer_overview')
-    .select('*', { count: 'exact' })
-    .eq('is_archived', Boolean(p.archived))
-    .order('created_at', { ascending: false })
-    .order('id', { ascending: false });
-  const or = p.search ? ilikeOr(['full_name', 'contact_number', 'email', 'address'], p.search) : null;
-  if (or) q = q.or(or);
-  const [a, b] = range(p.page, p.pageSize);
-  const res = await q.range(a, b);
-  return { rows: unwrap(res) ?? [], total: res.count ?? 0 };
-}
-
-export async function listCustomerOptions(): Promise<Pick<Customer, 'id' | 'full_name'>[]> {
-  return unwrap(await supabase.from('customers').select('id, full_name').eq('is_archived', false).order('created_at', { ascending: false }).order('id', { ascending: false }).limit(5000));
-}
-
-export async function saveCustomer(input: Partial<Customer> & { full_name: string }) {
-  const payload = nn({
-    full_name: input.full_name.trim(),
-    contact_number: input.contact_number ?? '',
-    email: input.email ?? '',
-    address: input.address ?? '',
-  });
-  if (input.id) return unwrap(await supabase.from('customers').update(payload).eq('id', input.id).select().single());
-  return unwrap(await supabase.from('customers').insert(payload).select().single());
-}
-
-export async function deleteCustomer(id: number): Promise<'deleted' | 'archived'> {
-  return unwrap(await supabase.rpc('delete_customer', { p_id: id }));
-}
-
-export async function restoreCustomer(id: number) {
-  return unwrap(await supabase.from('customers').update({ is_archived: false }).eq('id', id).select().single());
-}
-
 export async function listSuppliers(p: { search?: string; page: number; archived?: boolean; pageSize?: number }): Promise<Page<Supplier>> {
   let q = supabase
     .from('supplier_overview')
@@ -347,12 +309,6 @@ export async function deleteSupplier(id: number): Promise<'deleted' | 'archived'
 
 export async function restoreSupplier(id: number) {
   return unwrap(await supabase.from('suppliers').update({ is_archived: false }).eq('id', id).select().single());
-}
-
-export async function customerSales(customerId: number): Promise<Sale[]> {
-  return unwrap(
-    await supabase.from('sales').select('*').eq('customer_id', customerId).order('sold_at', { ascending: false }).limit(200),
-  );
 }
 
 export async function supplierDeliveries(supplierId: number): Promise<StockMovement[]> {

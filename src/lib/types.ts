@@ -71,21 +71,6 @@ export interface ProductRow {
   has_image: boolean;
 }
 
-export interface Customer {
-  id: number;
-  full_name: string;
-  contact_number: string | null;
-  email: string | null;
-  address: string | null;
-  is_archived: boolean;
-  created_at: string;
-  updated_at: string;
-  sale_count?: number;
-  total_quantity?: number;
-  total_amount?: number;
-  last_purchase_at?: string | null;
-}
-
 export interface Supplier {
   id: number;
   name: string;
