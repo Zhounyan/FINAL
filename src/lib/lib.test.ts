@@ -101,8 +101,9 @@ describe('role permissions (UI layer mirrors database RBAC)', () => {
     const c = capabilities({ role: 'cashier' });
     expect(c.usePos && c.viewProducts && c.viewTransactions && c.viewDashboard).toBe(true);
     expect(
-      c.addProducts || c.editProducts || c.deleteProducts || c.recordStockIn || c.recordStockOut || c.recordAdjustment || c.manageUsers,
+      c.addProducts || c.editProducts || c.deleteProducts || c.recordAdjustment || c.reverseMovements || c.viewMovementHistory || c.manageUsers,
     ).toBe(false);
+    expect(c.recordStockIn && c.recordStockOut).toBe(true);
     expect(c.viewSalesReports || c.viewStockReports || c.viewAllTransactions || c.voidTransactions || c.manageSettings || c.viewActivity).toBe(false);
     expect(c.manageBackups).toBe(false);
   });

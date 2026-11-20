@@ -16,26 +16,29 @@ import { LoadingBlock } from '@/components/ui/Spinner';
 import { ProductCombobox } from '@/components/stock/ProductCombobox';
 import { MovementTypeBadge } from '@/components/stock/MovementViews';
 import { HistoryTable } from './StockReportPage';
+import { useAuth } from '@/auth/AuthProvider';
 
 // ---------------------------------------------------------------------------
 // Pages
 // ---------------------------------------------------------------------------
 export function StockInPage() {
+  const { can } = useAuth();
   return (
     <div className="space-y-6">
       <PageHeader icon={<ArrowDownToLine className="size-5" />} title="Stock-In" description="Record products received. Inventory increases as soon as the entry is confirmed, and each entry gets its own IN- reference number." />
       <StockInForm />
-      <RecentMovements title="Stock-In history" types={['stock_in']} showCost />
+      <RecentMovements title={can.isAdmin ? 'Stock-In history' : 'My Stock-In history'} types={['stock_in']} showCost />
     </div>
   );
 }
 
 export function StockOutPage() {
+  const { can } = useAuth();
   return (
     <div className="space-y-6">
       <PageHeader icon={<PackageMinus className="size-5" />} title="Stock-Out" description="Release damaged, expired, missing or internally used items. Sales are deducted automatically by the Point of Sale." />
       <StockOutForm />
-      <RecentMovements title="Stock-Out history" types={['damaged', 'expired', 'lost', 'internal_use', 'other_out']} />
+      <RecentMovements title={can.isAdmin ? 'Stock-Out history' : 'My Stock-Out history'} types={['damaged', 'expired', 'lost', 'internal_use', 'other_out']} />
     </div>
   );
 }
@@ -218,7 +221,7 @@ function StockInForm() {
         <HelpCard
           items={[
             'A unique IN- reference number, the date, time and your name are recorded automatically.',
-            'Entries are never edited or deleted. A mistake is corrected with a reversal in Stock Movement History.',
+            'Entries are never edited or deleted. If you made a mistake, ask the Administrator to reverse it.',
           ]}
         />
       </div>

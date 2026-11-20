@@ -287,8 +287,8 @@ test('cashier signs in with a username, changes the temporary password and sees 
   await expect(page.getByText('Ready to sell?')).toBeVisible();
   const sidebar = page.getByRole('navigation', { name: 'Main navigation' });
   const links = await sidebar.getByRole('link').allInnerTexts();
-  expect(links.map((l) => l.trim())).toEqual(['Point of Sale', 'Dashboard', 'Products', 'My Sales & Invoices', 'My Profile']);
-  for (const path of ['/stock/in', '/stock/history', '/sales', '/sales-reports/daily', '/stock/reports/daily', '/users', '/activity', '/settings', '/backups', '/suppliers']) {
+  expect(links.map((l) => l.trim())).toEqual(['Point of Sale', 'Dashboard', 'Products', 'Stock-In', 'Stock-Out', 'My Sales & Invoices', 'My Profile']);
+  for (const path of ['/stock/history', '/sales', '/sales-reports/daily', '/stock/reports/daily', '/users', '/activity', '/settings', '/backups', '/suppliers']) {
     await page.goto(path);
     await expect(page.getByRole('heading', { name: 'Access restricted' }), path).toBeVisible();
   }
@@ -627,6 +627,45 @@ test('admin deletes a cashier account and can recover it within 7 days', async (
   await row().getByRole('button', { name: `Activate ${PEDRO.name}` }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Activate' }).click();
   await expectToast(/activated/);
+});
+
+test('cashier records Stock-In and Stock-Out and sees only her own entries', async () => {
+  await logout();
+  await login(MARIA.username, MARIA.password);
+  await expect(page.getByText('Ready to sell?')).toBeVisible();
+
+  await nav('Stock-In');
+  await pickProduct(/Candy Pop/);
+  await page.getByLabel('Quantity received').fill('10');
+  await page.getByLabel('Supplier').selectOption({ label: 'Metro Distributors' });
+  await page.getByLabel('Supporting document no.').fill('DR-2001');
+  await page.getByRole('button', { name: 'Record Stock-In' }).click();
+  await expect(page.getByRole('status').filter({ hasText: /Stock changed from 0 to 10 · Reference IN-\d{6}/ })).toBeVisible();
+  await expect(page.getByText('My Stock-In history')).toBeVisible();
+  const history = page.getByTestId('movement-history');
+  await expect(history.locator('tbody tr')).toHaveCount(1); // only her own entry, not the Administrator's deliveries
+  await expect(history).toContainText('DR-2001');
+  await expect(history).toContainText(MARIA.name);
+
+  await nav('Stock-Out');
+  await pickProduct(/Candy Pop/);
+  await page.getByLabel('Stock-out reason').selectOption('expired');
+  await page.getByLabel('Quantity released').fill('2');
+  await page.getByRole('button', { name: 'Record Stock-Out' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Record Stock-Out' }).click();
+  await expect(page.getByRole('status').filter({ hasText: /Stock changed from 10 to 8 · Reference OUT-\d{6}/ })).toBeVisible();
+  await expect(page.getByTestId('movement-history')).toContainText('Stock-Out: Expired');
+
+  // adjustments, the full history and the reports stay with the Administrator
+  for (const path of ['/stock/history', '/stock/reports/daily']) {
+    await page.goto(path);
+    await expect(page.getByRole('heading', { name: 'Access restricted' }), path).toBeVisible();
+  }
+  await nav('Products');
+  await expect(page.getByRole('button', { name: 'Adjust stock' })).toHaveCount(0);
+  await logout();
+  await login(ADMIN.email, ADMIN.password);
+  await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
 });
 
 test('users can upload, change and remove their profile photo', async () => {

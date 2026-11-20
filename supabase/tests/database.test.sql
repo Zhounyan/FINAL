@@ -200,8 +200,7 @@ select public.record_stock_in((select id from public.products where sku = 'FOOD-
 select tests.throws($$select public.record_stock_in(1, 0)$$, 'greater than zero', 'zero quantity rejected');
 select tests.ok((select movement_no from public.stock_movements where reference_no = 'DR-1002') ~ '^IN-[0-9]{6}$', 'stock-in gets a unique IN- reference number');
 select tests.as_user('00000000-0000-0000-0000-00000000000c');
-select tests.throws($$select public.record_stock_in(1, 5)$$, 'permission', 'cashier cannot record stock in');
-select tests.throws($$select public.record_stock_out(1, 5, 'damaged', null, null, 'x')$$, 'permission', 'cashier cannot record stock out');
+select tests.throws($$select public.record_stock_in(1, 0)$$, 'greater than zero', 'cashier stock-in is validated too');
 
 -- sale: two products, duplicate line for BEV-001 merged (12 + 8 = 20)
 select tests.as_user('00000000-0000-0000-0000-00000000000c');
@@ -472,8 +471,10 @@ select tests.throws($$select public.record_sale('[{"product_id":1,"quantity":2}]
 select tests.eq((select count(*)::int from public.sales), 2, 'cashier sees only her own transactions');
 select tests.eq((select max(total_count)::int from public.list_sales()), 2, 'cashier transaction history lists only her own sales');
 select tests.eq((select count(*)::int from public.sale_items), 2, 'cashier sees only items of her own sales');
-select tests.eq((select count(*)::int from public.stock_movements), 0, 'cashier cannot read the stock ledger');
-select tests.eq((select count(*)::int from public.suppliers), 0, 'cashier cannot read suppliers');
+select tests.eq((select count(*)::int from public.stock_movements where created_by <> auth.uid()), 0, 'cashier sees only her own stock entries');
+select tests.ok((select count(*) from public.stock_movements) > 0, 'cashier sees the stock entries of her own sales');
+select tests.ok((select count(*) from public.suppliers) > 0, 'cashier can read supplier names (for Stock-In)');
+select tests.throws($$insert into public.suppliers (name) values ('Cashier Co')$$, 'row-level security', 'cashier still cannot add suppliers');
 select tests.throws($$select public.log_invoice_action((select id from sale1), 'printed')$$, 'not found', 'cashier cannot use another cashier''s invoice');
 select public.log_invoice_action((select id from sale_gc), 'printed');
 select tests.ok(exists (select 1 from public.activity_logs where action = 'invoice_printed' and user_id = auth.uid()), 'invoice printing is audit-logged');
@@ -527,6 +528,21 @@ select tests.eq((select (r -> 'totals' ->> 'stock_out_qty')::int from public.sto
   'movement-type filter applies');
 select tests.eq((public.admin_dashboard() ->> 'total_products')::int, 2, 'admin dashboard counts active products');
 select tests.ok((select max(total_count) from public.list_movements('2026-11-01', current_date, null, null, null, 'VOID-')) = 1, 'movement history searchable by reference number');
+
+-- Cashiers record Stock-In and Stock-Out (net zero here, so later figures are unchanged)
+select tests.as_user('00000000-0000-0000-0000-00000000000e');
+create temp table cashier_ops as select current_stock as before from public.products where sku = 'BEV-002';
+grant select on cashier_ops to authenticated;
+select (public.record_stock_in((select id from public.products where sku = 'BEV-002'), 4, (select min(id) from public.suppliers), 'DR-CASHIER', 'Delivery received by cashier', 25)).id;
+select tests.eq((select current_stock from public.products where sku = 'BEV-002'), (select before + 4 from cashier_ops), 'cashier stock-in increases inventory');
+select tests.eq((select created_by_name from public.stock_movements where reference_no = 'DR-CASHIER'), 'Cara Cashier', 'stock-in records the cashier');
+select (public.record_stock_out((select id from public.products where sku = 'BEV-002'), 4, 'expired', null, 'EXP-1', 'Past expiry date')).id;
+select tests.eq((select current_stock from public.products where sku = 'BEV-002'), (select before from cashier_ops), 'cashier stock-out decreases inventory');
+select tests.throws($$select public.record_stock_out((select id from public.products where sku = 'BEV-002'), 999999, 'damaged', null, null, 'x')$$, 'Insufficient stock', 'cashier cannot release more than is in stock');
+select tests.throws($$select public.record_adjustment(2, 'count', 1)$$, 'permission', 'cashier still cannot adjust stock');
+select tests.throws($$select public.reverse_movement((select id from public.stock_movements where reference_no = 'EXP-1'), 'x')$$, 'permission', 'cashier still cannot reverse entries');
+select tests.throws($$select public.stock_report(current_date, current_date)$$, 'permission', 'cashier still cannot open stock reports');
+select tests.as_user('00000000-0000-0000-0000-00000000000a');
 reset role;
 
 -- ===========================================================================

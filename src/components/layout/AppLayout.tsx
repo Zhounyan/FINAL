@@ -84,6 +84,8 @@ const CASHIER_NAV: NavItem[] = [
   { to: '/pos', label: 'Point of Sale', icon: ShoppingCart, capability: 'usePos' },
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, capability: 'viewDashboard' },
   { to: '/products', label: 'Products', icon: Package, capability: 'viewProducts' },
+  { to: '/stock/in', label: 'Stock-In', icon: ArrowDownToLine, capability: 'recordStockIn' },
+  { to: '/stock/out', label: 'Stock-Out', icon: PackageMinus, capability: 'recordStockOut' },
   { to: '/my-sales', label: 'My Sales & Invoices', icon: ReceiptText, capability: 'viewTransactions' },
   { to: '/profile', label: 'My Profile', icon: UserCircle, capability: 'viewDashboard' },
 ];

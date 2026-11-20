@@ -22,8 +22,9 @@ export function capabilities(profile: Pick<Profile, 'role'> | null) {
     deleteProducts: admin,
     viewCostPrices: admin,
     manageCategories: admin,
-    recordStockIn: admin,
-    recordStockOut: admin,
+    /** Stock-In / Stock-Out: both roles (adjustments, reversals and reports stay Administrator-only) */
+    recordStockIn: active,
+    recordStockOut: active,
     recordAdjustment: admin,
     reverseMovements: admin,
     viewMovementHistory: admin,
