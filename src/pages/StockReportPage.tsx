@@ -8,7 +8,7 @@ import { useDebounce, useProductOptions, useResettingPage, useSettings, useStore
 import { listMovements, PAGE_SIZE, stockReport } from '@/lib/api';
 import type { DocModel } from '@/lib/documents';
 import { errorMessage } from '@/lib/errors';
-import { fmtDateTime, fmtInt, fmtSigned, MOVEMENT_LABELS } from '@/lib/format';
+import { fmtDateTime, fmtInt, fmtMoney, fmtSigned, MOVEMENT_LABELS } from '@/lib/format';
 import type { MovementType, StockMovement, StockReport } from '@/lib/types';
 import { Card, EmptyState, ErrorState, PageHeader, Pagination, SearchInput, StatCard, TableWrap } from '@/components/ui/Display';
 import { LoadingBlock } from '@/components/ui/Spinner';
@@ -235,7 +235,7 @@ function StockReportView({ period, today }: { period: Period; today: string }) {
 /** Category transfers are internal bookkeeping (net zero) and are left out of the history. */
 const historyTypes: MovementType[] = ['stock_in', 'sale', 'sale_void', 'damaged', 'expired', 'lost', 'internal_use', 'other_out', 'adjustment'];
 
-export function HistoryTable({ rows, onReverse }: { rows: StockMovement[]; onReverse?: (m: StockMovement) => void }) {
+export function HistoryTable({ rows, onReverse, showCost }: { rows: StockMovement[]; onReverse?: (m: StockMovement) => void; showCost?: boolean }) {
   if (!rows.length) return <EmptyState title="No stock movements" message="Nothing matches these filters." />;
   return (
     <TableWrap>
@@ -250,6 +250,8 @@ export function HistoryTable({ rows, onReverse }: { rows: StockMovement[]; onRev
             <th className="num">Added</th>
             <th className="num">Deducted</th>
             <th className="num">New</th>
+            {showCost && <th className="num">Unit cost</th>}
+            {showCost && <th className="num">Total cost</th>}
             <th>Reference</th>
             <th>User</th>
             <th>Remarks</th>
@@ -272,6 +274,8 @@ export function HistoryTable({ rows, onReverse }: { rows: StockMovement[]; onRev
               <td className="num text-emerald-700">{m.quantity_change > 0 ? `+${fmtInt(m.quantity_change)}` : '—'}</td>
               <td className="num text-red-700">{m.quantity_change < 0 ? `-${fmtInt(-m.quantity_change)}` : '—'}</td>
               <td className="num font-semibold">{fmtInt(m.quantity_after)}</td>
+              {showCost && <td className="num">{m.unit_cost != null ? fmtMoney(m.unit_cost) : '—'}</td>}
+              {showCost && <td className="num font-semibold">{m.unit_cost != null ? fmtMoney(Math.abs(m.quantity_change) * Number(m.unit_cost)) : '—'}</td>}
               <td className="text-xs whitespace-nowrap">{m.reference_no ?? '—'}</td>
               <td className="whitespace-nowrap">{m.created_by_name}</td>
               <td className="max-w-56 text-xs text-muted">

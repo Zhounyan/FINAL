@@ -159,7 +159,7 @@ test('admin manages categories, suppliers and customers (newest first)', async (
 
 test('admin adds products with barcode, supplier, image and opening stock; codes are unique', async () => {
   await nav('Products');
-  const add = async (p: { name: string; sku: string; barcode?: string; category: string; unit: string; min: string; price: string; opening: string; image?: boolean }) => {
+  const add = async (p: { name: string; sku: string; barcode?: string; category: string; unit: string; min: string; price: string; cost?: string; opening: string; image?: boolean }) => {
     await page.getByRole('button', { name: 'Add product' }).first().click();
     const d = page.getByRole('dialog');
     await d.getByLabel('Product name').fill(p.name);
@@ -169,6 +169,7 @@ test('admin adds products with barcode, supplier, image and opening stock; codes
     await d.getByLabel('Unit').fill(p.unit);
     await d.getByLabel('Minimum stock level').fill(p.min);
     await d.getByLabel('Selling price').fill(p.price);
+    if (p.cost) await d.getByLabel('Purchase price').fill(p.cost);
     await d.getByLabel('Supplier').selectOption({ label: 'Metro Distributors' });
     await d.getByRole('spinbutton', { name: 'Opening stock', exact: true }).fill(p.opening);
     if (p.image) {
@@ -179,7 +180,7 @@ test('admin adds products with barcode, supplier, image and opening stock; codes
     await expect(d).toBeHidden();
     await expectToast(/Product added/);
   };
-  await add({ name: 'Cola 1L', sku: 'BEV-001', barcode: '4801234567890', category: 'Beverages', unit: 'bottle', min: '20', price: '55', opening: '300', image: true });
+  await add({ name: 'Cola 1L', sku: 'BEV-001', barcode: '4801234567890', category: 'Beverages', unit: 'bottle', min: '20', price: '55', cost: '40', opening: '300', image: true });
   await add({ name: 'Rice 5kg', sku: 'FOOD-001', category: 'Food Products', unit: 'sack', min: '10', price: '260', opening: '50' });
   await add({ name: 'Candy Pop', sku: 'SNK-001', category: 'Snacks', unit: 'pc', min: '5', price: '1.50', opening: '0' });
   const rows = page.getByTestId('products-table').locator('tbody tr');
@@ -225,13 +226,21 @@ test('admin creates two cashier accounts (one without e-mail)', async () => {
 test('stock-in and stock-out change inventory through the ledger, with unique reference numbers', async () => {
   await nav('Stock-In');
   await pickProduct(/Cola 1L/);
+  await expect(page.getByLabel('Unit cost')).toHaveValue('40.00'); // filled in from the purchase price
   await page.getByLabel('Quantity received').fill('100');
+  await expect(page.getByTestId('stock-in-total-cost')).toContainText('₱4,000.00');
+  await expect(page.getByTestId('stock-in-total-cost')).toContainText('100 × ₱40.00');
+  await page.getByLabel('Unit cost').fill('42');
+  await expect(page.getByTestId('stock-in-total-cost')).toContainText('₱4,200.00');
+  await page.getByLabel('Unit cost').fill('40');
   await page.getByLabel('Supplier').selectOption({ label: 'Metro Distributors' });
   await page.getByLabel('Supporting document no.').fill('DR-1001');
   await page.getByLabel('Remarks').fill('Weekly delivery');
   await page.getByRole('button', { name: 'Record Stock-In' }).click();
   await expect(page.getByRole('status').filter({ hasText: /Stock changed from 300 to 400 · Reference IN-\d{6}/ })).toBeVisible();
   await expect(page.getByTestId('movement-history')).toContainText('DR-1001');
+  await expect(page.getByRole('status').filter({ hasText: 'Total cost ₱4,000.00 (100 × ₱40.00)' })).toBeVisible();
+  await expect(page.getByTestId('movement-history').locator('tbody tr').filter({ hasText: 'DR-1001' })).toContainText('₱4,000.00');
 
   await nav('Stock-Out');
   await pickProduct(/Rice 5kg/);

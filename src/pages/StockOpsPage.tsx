@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { ArrowDownToLine, Boxes, PackageMinus, PackageX, SlidersHorizontal, Warehouse } from 'lucide-react';
 import { adminDashboard, listMovements, listProducts, PAGE_SIZE, recordAdjustment, recordStockIn, recordStockOut } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
-import { fmtDateTime, fmtInt, fmtSigned, STOCK_OUT_REASONS } from '@/lib/format';
+import { fmtDateTime, fmtInt, fmtMoney, fmtSigned, STOCK_OUT_REASONS } from '@/lib/format';
 import type { MovementType, ProductRow, StockMovement, StockOutType, StockStatus } from '@/lib/types';
 import { useCategories, useDebounce, useInvalidateInventory, useProductOptions, useSupplierOptions, useResettingPage, useStoreToday } from '@/hooks/data';
 import { Button } from '@/components/ui/Button';
@@ -25,7 +25,7 @@ export function StockInPage() {
     <div className="space-y-6">
       <PageHeader icon={<ArrowDownToLine className="size-5" />} title="Stock-In" description="Record products received. Inventory increases as soon as the entry is confirmed, and each entry gets its own IN- reference number." />
       <StockInForm />
-      <RecentMovements title="Stock-In history" types={['stock_in']} />
+      <RecentMovements title="Stock-In history" types={['stock_in']} showCost />
     </div>
   );
 }
@@ -58,7 +58,7 @@ export function InventoryPage() {
   );
 }
 
-function RecentMovements({ title, types }: { title: string; types: MovementType[] }) {
+function RecentMovements({ title, types, showCost }: { title: string; types: MovementType[]; showCost?: boolean }) {
   const today = useStoreToday();
   const [from, setFrom] = useState(() => {
     const d = new Date(`${today}T00:00:00`);
@@ -83,7 +83,7 @@ function RecentMovements({ title, types }: { title: string; types: MovementType[
         <input type="date" className="input h-10 w-auto" value={from} max={today} onChange={(e) => setFrom(e.target.value)} aria-label="From date" />
         <input type="date" className="input h-10 w-auto" value={to} max={today} onChange={(e) => setTo(e.target.value)} aria-label="To date" />
       </div>
-      {q.isError ? <ErrorState error={errorMessage(q.error)} onRetry={() => q.refetch()} /> : q.isLoading ? <LoadingBlock /> : <HistoryTable rows={q.data?.rows ?? []} />}
+      {q.isError ? <ErrorState error={errorMessage(q.error)} onRetry={() => q.refetch()} /> : q.isLoading ? <LoadingBlock /> : <HistoryTable rows={q.data?.rows ?? []} showCost={showCost} />}
       <Pagination page={page} pageSize={PAGE_SIZE} total={q.data?.total ?? 0} onChange={setPage} />
     </Card>
   );
@@ -102,6 +102,11 @@ function SuccessReceipt({ movement, onDismiss }: { movement: StockMovement; onDi
       <p className="mt-1">
         Stock changed from <b>{fmtInt(movement.quantity_before)}</b> to <b>{fmtInt(movement.quantity_after)}</b> · Reference <b>{movement.movement_no}</b> · {fmtDateTime(movement.occurred_at)}
       </p>
+      {movement.movement_type === 'stock_in' && movement.unit_cost != null && (
+        <p className="mt-1">
+          Total cost <b>{fmtMoney(movement.quantity_change * Number(movement.unit_cost))}</b> ({fmtInt(movement.quantity_change)} × {fmtMoney(movement.unit_cost)})
+        </p>
+      )}
     </div>
   );
 }
@@ -134,10 +139,19 @@ function StockInForm() {
   const [supplierId, setSupplierId] = useState('');
   const [ref, setRef] = useState('');
   const [reason, setReason] = useState('');
-  const [unitCost, setUnitCost] = useState('');
+  // The unit cost starts at the product's purchase price; the user may type a different cost for this delivery.
+  const [costOverride, setCostOverride] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [last, setLast] = useState<StockMovement | null>(null);
   const product = products.data?.find((p) => p.id === productId);
+  const unitCost = costOverride ?? (product ? Number(product.purchase_price).toFixed(2) : '');
+  const qtyNum = positiveInt(qty);
+  const costNum = unitCost === '' ? NaN : Number(unitCost);
+  const totalCost = qtyNum && Number.isFinite(costNum) && costNum >= 0 ? Math.round(qtyNum * costNum * 100) / 100 : null;
+  const chooseProduct = (id: number | null) => {
+    setProductId(id);
+    setCostOverride(null);
+  };
 
   const m = useMutation({
     mutationFn: recordStockIn,
@@ -147,7 +161,7 @@ function StockInForm() {
       setQty('');
       setRef('');
       setReason('');
-      setUnitCost('');
+      setCostOverride(null);
       await invalidate();
     },
     onError: (e) => toast.error(errorMessage(e)),
@@ -159,7 +173,7 @@ function StockInForm() {
     const q = positiveInt(qty);
     if (!productId) errs.product = 'Select a product';
     if (!q) errs.qty = 'Enter a whole number greater than zero';
-    if (unitCost && (Number.isNaN(Number(unitCost)) || Number(unitCost) < 0)) errs.cost = 'Enter a valid cost';
+    if (unitCost !== '' && (Number.isNaN(Number(unitCost)) || Number(unitCost) < 0)) errs.cost = 'Enter a valid cost';
     setErrors(errs);
     if (Object.keys(errs).length) return;
     m.mutate({
@@ -168,7 +182,7 @@ function StockInForm() {
       supplier_id: supplierId ? Number(supplierId) : null,
       reference_no: ref,
       reason,
-      unit_cost: unitCost ? Number(unitCost) : null,
+      unit_cost: unitCost !== '' ? Number(unitCost) : null,
     });
   };
 
@@ -177,7 +191,7 @@ function StockInForm() {
       <Card title="Receive stock" subtitle="Products received or added to Bill Store's inventory" className="xl:col-span-2" bodyClassName="p-5">
         <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2" noValidate>
           <div className="space-y-3 sm:col-span-2">
-            <ProductCombobox label="Product" required products={products.data ?? []} value={productId} onChange={setProductId} error={errors.product} />
+            <ProductCombobox label="Product" required products={products.data ?? []} value={productId} onChange={chooseProduct} error={errors.product} />
             <SelectedProductInfo product={product} />
           </div>
           <Input label="Quantity received" required type="number" min={1} step={1} inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value)} error={errors.qty} />
@@ -186,7 +200,22 @@ function StockInForm() {
             {suppliers.data?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </Select>
           <Input label="Supporting document no." placeholder="Delivery receipt, PO or supplier invoice no." maxLength={60} value={ref} onChange={(e) => setRef(e.target.value)} />
-          <Input label="Purchase price / unit cost" type="number" min={0} step="0.01" placeholder={product ? String(product.purchase_price) : ''} value={unitCost} onChange={(e) => setUnitCost(e.target.value)} error={errors.cost} />
+          <Input
+            label="Unit cost"
+            type="number"
+            min={0}
+            step="0.01"
+            inputMode="decimal"
+            value={unitCost}
+            onChange={(e) => setCostOverride(e.target.value)}
+            error={errors.cost}
+            hint={product ? (costOverride === null ? "From the product's purchase price — change it if this delivery cost differs." : `Purchase price on file: ${fmtMoney(product.purchase_price)}`) : 'Filled in from the product\'s purchase price.'}
+          />
+          <div className="flex flex-col justify-center rounded-xl border border-brand-200 bg-brand-50/70 px-4 py-2.5" data-testid="stock-in-total-cost">
+            <span className="text-xs font-medium text-muted">Total cost</span>
+            <span className="text-xl font-bold text-brand-900 tabular-nums">{totalCost != null ? fmtMoney(totalCost) : '—'}</span>
+            <span className="text-xs text-muted">{totalCost != null ? `${fmtInt(qtyNum)} × ${fmtMoney(costNum)}` : 'Quantity received × unit cost'}</span>
+          </div>
           <Textarea label="Remarks" maxLength={500} placeholder="e.g. Weekly delivery" value={reason} onChange={(e) => setReason(e.target.value)} wrapperClassName="sm:col-span-2" />
           <div className="flex justify-end sm:col-span-2">
             <Button type="submit" size="lg" loading={m.isPending} icon={<ArrowDownToLine className="size-4" />}>Record Stock-In</Button>
