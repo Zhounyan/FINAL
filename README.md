@@ -231,7 +231,7 @@ src/
   components/      UI kit, layout, password meter, stock movement views/filters, export buttons
   hooks/           data hooks, realtime invalidation, pagination
   lib/             api (all Supabase calls), types, periods, documents (print / PDF / Word), invoice, export (PDF/Excel lists), permissions, format
-  pages/           POS, Dashboard (admin / cashier), Products & Categories, Inventory, Stock-In / Stock-Out,
+  pages/           POS, Dashboard (admin / cashier), Products (with inventory totals & stock adjustment), Categories, Stock-In / Stock-Out,
                    Stock Movement History, Sales Transactions & Invoices (one page), Sales Reports, Stock Reports,
                    Customers, Suppliers, Users, Activity Logs, Settings, Backup & Restore, Profile, auth/*
 supabase/

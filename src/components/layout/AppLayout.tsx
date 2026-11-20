@@ -24,7 +24,6 @@ import {
   Truck,
   UserCircle,
   Users,
-  Warehouse,
   X,
 } from 'lucide-react';
 import { useAuth } from '@/auth/AuthProvider';
@@ -49,7 +48,6 @@ const ADMIN_NAV: NavItem[] = [
   { to: '/pos', label: 'Point of Sale', icon: ShoppingCart, capability: 'usePos' },
   { to: '/products', label: 'Products', icon: Package, capability: 'viewProducts' },
   { to: '/categories', label: 'Categories', icon: FolderTree, capability: 'manageCategories' },
-  { to: '/inventory', label: 'Inventory', icon: Warehouse, capability: 'viewInventory' },
   {
     to: '/stock',
     label: 'Stock Management',

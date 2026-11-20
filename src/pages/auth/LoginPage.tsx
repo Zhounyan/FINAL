@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -25,7 +25,6 @@ type Values = z.infer<typeof schema>;
 
 export default function LoginPage() {
   const { session, profile, signIn } = useAuth();
-  const navigate = useNavigate();
   const location = useLocation();
   const [error, setError] = useState<string | null>(null);
   const status = useQuery({ queryKey: ['setup-status'], queryFn: getSetupStatus, staleTime: 0, retry: 1 });
@@ -38,8 +37,8 @@ export default function LoginPage() {
   const onSubmit = handleSubmit(async (v) => {
     setError(null);
     try {
+      // Once signed in, this page re-renders and redirects (see the <Navigate> above) — one redirect only.
       await signIn(v.email, v.password);
-      navigate((location.state as { from?: string })?.from ?? '/', { replace: true });
     } catch (e) {
       const err = e as Error & { info?: { remaining_attempts?: number } };
       const remaining = err.info?.remaining_attempts;

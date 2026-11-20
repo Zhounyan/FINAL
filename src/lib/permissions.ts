@@ -22,7 +22,6 @@ export function capabilities(profile: Pick<Profile, 'role'> | null) {
     deleteProducts: admin,
     viewCostPrices: admin,
     manageCategories: admin,
-    viewInventory: admin,
     recordStockIn: admin,
     recordStockOut: admin,
     recordAdjustment: admin,

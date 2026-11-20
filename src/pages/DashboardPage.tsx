@@ -67,10 +67,10 @@ function AdminDashboardView() {
       <section aria-label="Inventory overview" className="grid grid-cols-2 gap-3 lg:grid-cols-6" data-testid="inventory-overview">
         <StatCard label="Total products" value={fmtInt(d.total_products)} icon={<Boxes className="size-4" />} />
         <StatCard label="Inventory quantity" value={fmtInt(d.total_quantity)} icon={<Warehouse className="size-4" />} tone="blue" />
-        <Link to="/inventory" className="block">
+        <Link to="/products?status=low" className="block">
           <StatCard label="Low stock" value={fmtInt(d.low_stock)} icon={<AlertTriangle className="size-4" />} tone="amber" />
         </Link>
-        <Link to="/inventory" className="block">
+        <Link to="/products?status=out" className="block">
           <StatCard label="Out of stock" value={fmtInt(d.out_of_stock)} icon={<PackageX className="size-4" />} tone="red" />
         </Link>
         <StatCard label="Today's stock-in" value={fmtInt(d.stock_in_today.quantity)} hint={`${fmtInt(d.stock_in_today.entries)} entr(ies)`} icon={<ArrowDownToLine className="size-4" />} tone="green" />

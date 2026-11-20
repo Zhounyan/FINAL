@@ -5,8 +5,11 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Eye, FolderTree, ImagePlus, Package, Pencil, Plus, Power, PowerOff, Tags, Trash2, X } from 'lucide-react';
+import { AlertTriangle, Boxes, Eye, FolderTree, ImagePlus, Package, PackageX, Pencil, Plus, Power, PowerOff, SlidersHorizontal, Tags, Trash2, Warehouse, X } from 'lucide-react';
+import { clsx } from 'clsx';
+import { StockAdjustmentModal } from './StockOpsPage';
 import {
+  adminDashboard,
   createProduct,
   deleteCategory,
   deleteProduct,
@@ -28,7 +31,7 @@ import { useCategories, useDebounce, useInvalidateInventory, useSettings, useSto
 import { Button } from '@/components/ui/Button';
 import { Input, Select, Textarea } from '@/components/ui/Field';
 import { ConfirmDialog, Modal } from '@/components/ui/Modal';
-import { Badge, Card, DetailRow, EmptyState, ErrorState, PageHeader, Pagination, SearchInput, TableWrap } from '@/components/ui/Display';
+import { Badge, Card, DetailRow, EmptyState, ErrorState, PageHeader, Pagination, SearchInput, StatCard, TableWrap } from '@/components/ui/Display';
 import { imageFileToAvatar } from '@/lib/image';
 import { LoadingBlock } from '@/components/ui/Spinner';
 import { MovementTable } from '@/components/stock/MovementViews';
@@ -41,14 +44,47 @@ export function StockStatusBadge({ status }: { status: StockStatus }) {
 
 export default function ProductsPage() {
   const { can } = useAuth();
+  const [adjusting, setAdjusting] = useState(false);
   return (
     <div className="space-y-6">
       <PageHeader
         icon={<Package className="size-5" />}
         title="Products"
-        description={can.editProducts ? 'Product catalogue: codes, barcodes, prices, suppliers and stock thresholds.' : 'Look up prices and product availability.'}
+        description={
+          can.editProducts
+            ? 'Product catalogue and inventory: codes, barcodes, prices, suppliers and current stock. Stock changes only through Stock-In, Stock-Out, sales and authorized adjustments.'
+            : 'Look up prices and product availability.'
+        }
+        actions={
+          can.recordAdjustment && (
+            <Button variant="outline" icon={<SlidersHorizontal className="size-4" />} onClick={() => setAdjusting(true)}>
+              Adjust stock
+            </Button>
+          )
+        }
       />
       <ProductsPanel />
+      {can.recordAdjustment && <StockAdjustmentModal open={adjusting} onClose={() => setAdjusting(false)} />}
+    </div>
+  );
+}
+
+/** Inventory overview (Administrator): totals, with quick filters by stock status. */
+function InventoryCards({ status, onStatus }: { status: 'all' | StockStatus; onStatus: (s: 'all' | StockStatus) => void }) {
+  const stats = useQuery({ queryKey: ['dashboard', 'admin'], queryFn: adminDashboard });
+  const d = stats.data;
+  const card = (key: 'all' | StockStatus, ring: string, node: React.ReactNode) => (
+    <button type="button" onClick={() => onStatus(key)} aria-pressed={status === key} className={clsx('rounded-2xl text-left', status === key && `ring-2 ${ring}`)}>
+      {node}
+    </button>
+  );
+  return (
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-5" data-testid="inventory-cards">
+      {card('all', 'ring-brand-400', <StatCard label="Total products" value={fmtInt(d?.total_products ?? 0)} icon={<Package className="size-4" />} />)}
+      <StatCard label="Total inventory quantity" value={fmtInt(d?.total_quantity ?? 0)} icon={<Warehouse className="size-4" />} tone="blue" />
+      {card('ok', 'ring-emerald-400', <StatCard label="Available (in stock)" value={fmtInt((d?.total_products ?? 0) - (d?.out_of_stock ?? 0))} icon={<Boxes className="size-4" />} tone="green" />)}
+      {card('low', 'ring-amber-400', <StatCard label="Low stock" value={fmtInt(d?.low_stock ?? 0)} icon={<AlertTriangle className="size-4" />} tone="amber" />)}
+      {card('out', 'ring-red-400', <StatCard label="Out of stock" value={fmtInt(d?.out_of_stock ?? 0)} icon={<PackageX className="size-4" />} tone="red" />)}
     </div>
   );
 }
@@ -108,6 +144,8 @@ function ProductsPanel() {
   });
 
   return (
+    <div className="space-y-4">
+    {can.viewCostPrices && !archived && <InventoryCards status={status} onStatus={setStatus} />}
     <Card
       title={archived ? 'Inactive products' : 'Active products'}
       subtitle="Newest products appear first"
@@ -242,6 +280,7 @@ function ProductsPanel() {
         onCancel={() => setDeleting(null)}
       />
     </Card>
+    </div>
   );
 }
 

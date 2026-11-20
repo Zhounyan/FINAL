@@ -10,9 +10,14 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   const location = useLocation();
   if (loading || (session && !profile)) return <FullPageLoader label="Loading your workspace…" />;
   // After an explicit Logout the next person starts on their own home page, not on the previous user's page.
-  if (!session || !profile) return <Navigate to="/login" replace state={signedOut ? undefined : { from: location.pathname }} />;
+  // `key={location.key}`: a <Navigate> only redirects when it mounts. Keying it to the location makes it
+  // redirect again if another navigation (e.g. the login page sending the user to "/") lands here while it
+  // is still mounted — otherwise the user would be left on an empty page.
+  if (!session || !profile) {
+    return <Navigate key={location.key} to="/login" replace state={signedOut ? undefined : { from: location.pathname }} />;
+  }
   if (profile.must_change_password && location.pathname !== '/profile') {
-    return <Navigate to="/profile?tab=password&required=1" replace />;
+    return <Navigate key={location.key} to="/profile?tab=password&required=1" replace />;
   }
   return <>{children}</>;
 }

@@ -17,7 +17,6 @@ const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const POSPage = lazy(() => import('./pages/POSPage'));
 const ProductsPage = lazy(() => import('./pages/ProductsPage'));
 const CategoriesPage = lazy(() => import('./pages/ProductsPage').then((m) => ({ default: m.CategoriesPage })));
-const InventoryPage = lazy(() => import('./pages/StockOpsPage').then((m) => ({ default: m.InventoryPage })));
 const StockInPage = lazy(() => import('./pages/StockOpsPage').then((m) => ({ default: m.StockInPage })));
 const StockOutPage = lazy(() => import('./pages/StockOpsPage').then((m) => ({ default: m.StockOutPage })));
 const StockMovementHistoryPage = lazy(() => import('./pages/StockMovementHistoryPage'));
@@ -79,7 +78,7 @@ export default function App() {
           <Route path="pos" element={<Guard capability="usePos"><POSPage /></Guard>} />
           <Route path="products" element={<Guard capability="viewProducts"><ProductsPage /></Guard>} />
           <Route path="categories" element={<Guard capability="manageCategories"><CategoriesPage /></Guard>} />
-          <Route path="inventory" element={<Guard capability="viewInventory"><InventoryPage /></Guard>} />
+          <Route path="inventory" element={<Navigate to="/products" replace />} />
           <Route path="stock" element={<Navigate to="/stock/in" replace />} />
           <Route path="stock/in" element={<Guard capability="recordStockIn"><StockInPage /></Guard>} />
           <Route path="stock/out" element={<Guard capability="recordStockOut"><StockOutPage /></Guard>} />

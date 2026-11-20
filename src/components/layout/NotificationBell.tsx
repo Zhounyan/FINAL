@@ -224,7 +224,7 @@ export function NotificationBell() {
               type="button"
               onClick={() => {
                 setOpen(false);
-                navigate(can.viewInventory ? '/inventory' : '/products?status=low');
+                navigate('/products?status=low');
               }}
               className="block w-full border-t border-line px-4 py-2.5 text-center text-xs font-medium text-brand-700 hover:bg-brand-50"
             >

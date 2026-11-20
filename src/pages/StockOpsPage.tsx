@@ -2,16 +2,16 @@ import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowDownToLine, Boxes, PackageMinus, PackageX, SlidersHorizontal, Warehouse } from 'lucide-react';
-import { adminDashboard, listMovements, listProducts, PAGE_SIZE, recordAdjustment, recordStockIn, recordStockOut } from '@/lib/api';
+import { ArrowDownToLine, PackageMinus, SlidersHorizontal } from 'lucide-react';
+import { listMovements, PAGE_SIZE, recordAdjustment, recordStockIn, recordStockOut } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
 import { fmtDateTime, fmtInt, fmtMoney, fmtSigned, STOCK_OUT_REASONS } from '@/lib/format';
-import type { MovementType, ProductRow, StockMovement, StockOutType, StockStatus } from '@/lib/types';
-import { useCategories, useDebounce, useInvalidateInventory, useProductOptions, useSupplierOptions, useResettingPage, useStoreToday } from '@/hooks/data';
+import type { MovementType, ProductRow, StockMovement, StockOutType } from '@/lib/types';
+import { useDebounce, useInvalidateInventory, useProductOptions, useSupplierOptions, useResettingPage, useStoreToday } from '@/hooks/data';
 import { Button } from '@/components/ui/Button';
 import { Input, Select, Textarea } from '@/components/ui/Field';
 import { ConfirmDialog, Modal } from '@/components/ui/Modal';
-import { Badge, Card, EmptyState, ErrorState, PageHeader, Pagination, SearchInput, StatCard, TableWrap } from '@/components/ui/Display';
+import { Card, ErrorState, PageHeader, Pagination, SearchInput } from '@/components/ui/Display';
 import { LoadingBlock } from '@/components/ui/Spinner';
 import { ProductCombobox } from '@/components/stock/ProductCombobox';
 import { MovementTypeBadge } from '@/components/stock/MovementViews';
@@ -40,21 +40,12 @@ export function StockOutPage() {
   );
 }
 
-export function InventoryPage() {
-  const [adjusting, setAdjusting] = useState(false);
+/** Authorized stock adjustment (physical count or verified error), opened from the Products page. */
+export function StockAdjustmentModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
-    <div className="space-y-6">
-      <PageHeader
-        icon={<Warehouse className="size-5" />}
-        title="Inventory"
-        description="Current stock of every product. Quantities change only through Stock-In, Stock-Out, completed sales and authorized adjustments."
-        actions={<Button icon={<SlidersHorizontal className="size-4" />} onClick={() => setAdjusting(true)}>Adjust stock</Button>}
-      />
-      <InventoryPanel />
-      <Modal open={adjusting} onClose={() => setAdjusting(false)} size="xl" title="Authorized stock adjustment" description="Use after a physical count or a verified error. The previous quantity, change and new quantity are kept permanently.">
-        <AdjustmentForm />
-      </Modal>
-    </div>
+    <Modal open={open} onClose={onClose} size="xl" title="Authorized stock adjustment" description="Use after a physical count or a verified error. The previous quantity, change and new quantity are kept permanently.">
+      <AdjustmentForm />
+    </Modal>
   );
 }
 
@@ -423,91 +414,6 @@ function AdjustmentForm() {
         }
         onCancel={() => setConfirm(false)}
       />
-    </div>
-  );
-}
-
-function InventoryPanel() {
-  const [status, setStatus] = useState<'all' | StockStatus>('all');
-  const [categoryId, setCategoryId] = useState<number | null>(null);
-  const [search, setSearch] = useState('');
-  const debounced = useDebounce(search);
-  const categories = useCategories();
-  const [page, setPage] = useResettingPage([status, debounced, categoryId]);
-  const q = useQuery({
-    queryKey: ['products', 'inventory', status, debounced, categoryId, page],
-    queryFn: () => listProducts({ status, search: debounced, categoryId, page }),
-    placeholderData: (p) => p,
-  });
-  const stats = useQuery({ queryKey: ['dashboard', 'admin'], queryFn: adminDashboard });
-  const d = stats.data;
-  const pick = (s: 'all' | StockStatus) => setStatus(s);
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5" data-testid="inventory-cards">
-        <button type="button" onClick={() => pick('all')} className="text-left"><StatCard label="Total products" value={fmtInt(d?.total_products ?? 0)} icon={<Boxes className="size-4" />} className={status === 'all' ? 'ring-2 ring-brand-400' : ''} /></button>
-        <StatCard label="Total inventory quantity" value={fmtInt(d?.total_quantity ?? 0)} icon={<Warehouse className="size-4" />} tone="blue" />
-        <button type="button" onClick={() => pick('ok')} className="text-left"><StatCard label="Available (in stock)" value={fmtInt((d?.total_products ?? 0) - (d?.out_of_stock ?? 0))} tone="green" icon={<Boxes className="size-4" />} className={status === 'ok' ? 'ring-2 ring-emerald-400' : ''} /></button>
-        <button type="button" onClick={() => pick('low')} className="text-left"><StatCard label="Low stock" value={fmtInt(d?.low_stock ?? 0)} tone="amber" icon={<PackageMinus className="size-4" />} className={status === 'low' ? 'ring-2 ring-amber-400' : ''} /></button>
-        <button type="button" onClick={() => pick('out')} className="text-left"><StatCard label="Out of stock" value={fmtInt(d?.out_of_stock ?? 0)} tone="red" icon={<PackageX className="size-4" />} className={status === 'out' ? 'ring-2 ring-red-400' : ''} /></button>
-      </div>
-      <Card title="Current stock levels" subtitle={status === 'all' ? 'All active products' : status === 'ok' ? 'Showing products above their minimum level' : status === 'low' ? 'Showing low-stock products' : 'Showing out-of-stock products'}>
-        <div className="flex flex-wrap gap-3 border-b border-line p-4">
-          <SearchInput value={search} onChange={setSearch} className="max-w-sm flex-1" placeholder="Search name, SKU, barcode…" />
-          <select className="input h-10 w-auto" value={categoryId ?? ''} onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : null)} aria-label="Filter by category">
-            <option value="">All categories</option>
-            {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-          <select className="input h-10 w-auto" value={status} onChange={(e) => setStatus(e.target.value as typeof status)} aria-label="Filter by stock status">
-            <option value="all">All stock statuses</option>
-            <option value="ok">In stock</option>
-            <option value="low">Low stock</option>
-            <option value="out">Out of stock</option>
-          </select>
-        </div>
-        {q.isError ? (
-          <ErrorState error={errorMessage(q.error)} onRetry={() => q.refetch()} />
-        ) : q.isLoading ? (
-          <LoadingBlock />
-        ) : !q.data?.rows.length ? (
-          <EmptyState title="No products match" />
-        ) : (
-          <TableWrap>
-            <table className="table-base" data-testid="inventory-table">
-              <thead>
-                <tr>
-                  <th>Product</th>
-                  <th>Category</th>
-                  <th className="num">On hand</th>
-                  <th className="num">Minimum</th>
-                  <th>Level</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {q.data.rows.map((p) => {
-                  const pct = Math.min(100, p.min_stock_level > 0 ? (p.current_stock / (p.min_stock_level * 2)) * 100 : p.current_stock > 0 ? 100 : 0);
-                  return (
-                    <tr key={p.id}>
-                      <td><span className="font-medium">{p.name}</span><span className="block text-xs text-muted">{p.sku}{p.barcode ? ` · ${p.barcode}` : ''}</span></td>
-                      <td>{p.category_name}</td>
-                      <td className="num font-semibold">{fmtInt(p.current_stock)} <span className="text-xs font-normal text-muted">{p.unit}</span></td>
-                      <td className="num text-muted">{fmtInt(p.min_stock_level)}</td>
-                      <td className="w-40">
-                        <div className="h-2 rounded-full bg-slate-100" title={`${p.current_stock} of target ${p.min_stock_level * 2}`}>
-                          <div className={`h-2 rounded-full ${p.stock_status === 'out' ? 'bg-red-500' : p.stock_status === 'low' ? 'bg-amber-500' : 'bg-brand-600'}`} style={{ width: `${pct}%` }} />
-                        </div>
-                      </td>
-                      <td>{p.stock_status === 'out' ? <Badge tone="red">Out of stock</Badge> : p.stock_status === 'low' ? <Badge tone="amber">Low stock</Badge> : <Badge tone="green">In stock</Badge>}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </TableWrap>
-        )}
-        <Pagination page={page} pageSize={PAGE_SIZE} total={q.data?.total ?? 0} onChange={setPage} />
-      </Card>
     </div>
   );
 }

@@ -254,9 +254,18 @@ test('stock-in and stock-out change inventory through the ledger, with unique re
   await page.getByRole('dialog').getByRole('button', { name: 'Record Stock-Out' }).click();
   await expect(page.getByRole('status').filter({ hasText: /Stock changed from 50 to 45 · Reference OUT-\d{6}/ })).toBeVisible();
 
-  await nav('Inventory');
-  await expect(page.getByTestId('inventory-cards')).toContainText('445'); // 400 + 45 + 0
-  await expect(page.getByTestId('inventory-table').locator('tbody tr').filter({ hasText: 'Candy Pop' })).toContainText('Out of stock');
+  // Inventory lives on the Products page (the old /inventory link opens it)
+  await page.goto('/inventory');
+  await expect(page).toHaveURL(/\/products$/);
+  const cards = page.getByTestId('inventory-cards');
+  await expect(cards).toContainText('445'); // 400 + 45 + 0
+  await expect(page.getByTestId('products-table').locator('tbody tr').filter({ hasText: 'Candy Pop' })).toContainText('Out of stock');
+  await cards.getByRole('button', { name: /Out of stock/ }).click();
+  await expect(page.getByTestId('products-table').locator('tbody tr')).toHaveCount(1);
+  await expect(page.getByTestId('products-table')).toContainText('Candy Pop');
+  await cards.getByRole('button', { name: /Total products/ }).click();
+  await expect(page.getByTestId('products-table').locator('tbody tr')).toHaveCount(3);
+  await expect(page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Inventory', exact: true })).toHaveCount(0);
 
   // one central history; a stock-out mistake is reversed (once)
   await nav('Stock Movement History');
@@ -282,7 +291,7 @@ test('cashier signs in with a username, changes the temporary password and sees 
   const sidebar = page.getByRole('navigation', { name: 'Main navigation' });
   const links = await sidebar.getByRole('link').allInnerTexts();
   expect(links.map((l) => l.trim())).toEqual(['Point of Sale', 'Dashboard', 'Products', 'My Sales & Invoices', 'My Profile']);
-  for (const path of ['/inventory', '/stock/in', '/stock/history', '/sales', '/sales-reports/daily', '/stock/reports/daily', '/users', '/activity', '/settings', '/backups', '/suppliers']) {
+  for (const path of ['/stock/in', '/stock/history', '/sales', '/sales-reports/daily', '/stock/reports/daily', '/users', '/activity', '/settings', '/backups', '/suppliers']) {
     await page.goto(path);
     await expect(page.getByRole('heading', { name: 'Access restricted' }), path).toBeVisible();
   }
@@ -292,6 +301,8 @@ test('cashier signs in with a username, changes the temporary password and sees 
   await expect(page.getByRole('button', { name: /^Edit / })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /^Delete / })).toHaveCount(0);
   await expect(page.getByRole('columnheader', { name: 'Cost' })).toHaveCount(0);
+  await expect(page.getByTestId('inventory-cards')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Adjust stock' })).toHaveCount(0);
 });
 
 test('POS: search, barcode scan, cart corrections, cash payment with change and invoice', async () => {
@@ -432,8 +443,8 @@ test('admin sees all transactions, filters by cashier and voids a sale (stock re
   await expect(page.getByTestId('invoice-view')).toContainText('Customer returned the sack');
   await page.getByRole('button', { name: 'Close dialog' }).click();
 
-  await nav('Inventory');
-  await expect(page.getByTestId('inventory-table').locator('tbody tr').filter({ hasText: 'Rice 5kg' })).toContainText('48'); // 50 − 2 sold (void returned 1)
+  await nav('Products');
+  await expect(page.getByTestId('products-table').locator('tbody tr').filter({ hasText: 'Rice 5kg' })).toContainText('48'); // 50 − 2 sold (void returned 1)
   // invoices are exported straight from the merged list (no new sale is created)
   await nav('Sales Transactions & Invoices');
   const first = page.getByTestId('sales-table').locator('tbody tr').first();
@@ -545,7 +556,7 @@ test('responsive layout on a phone', async ({ browser }) => {
   await phone.getByRole('button', { name: 'Remove Cola 1L' }).click();
 
   expect(await phone.locator('meta[name=viewport]').getAttribute('content')).toContain('user-scalable=no');
-  for (const path of ['/', '/pos', '/products', '/categories', '/inventory', '/stock/in', '/stock/out', '/stock/history', '/stock/reports/daily', '/sales', '/sales-reports/daily', '/suppliers', '/customers', '/users', '/activity', '/settings', '/backups', '/profile']) {
+  for (const path of ['/', '/pos', '/products', '/categories', '/stock/in', '/stock/out', '/stock/history', '/stock/reports/daily', '/sales', '/sales-reports/daily', '/suppliers', '/customers', '/users', '/activity', '/settings', '/backups', '/profile']) {
     await phone.goto(path);
     await expect(phone.locator('main h1').first(), path).toBeVisible();
     await phone.waitForTimeout(300);
@@ -577,7 +588,7 @@ test('responsive layout on a phone', async ({ browser }) => {
 test('notification bell lists stock alerts and opens Stock-In for the product', async () => {
   await login(ADMIN.email, ADMIN.password);
   await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
-  await nav('Inventory');
+  await nav('Products');
   await page.getByRole('button', { name: 'Adjust stock' }).click();
   await pickProduct(/Rice 5kg/);
   await page.getByLabel('New counted quantity').fill('5');
