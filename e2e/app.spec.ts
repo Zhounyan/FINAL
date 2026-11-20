@@ -281,8 +281,8 @@ test('cashier signs in with a username, changes the temporary password and sees 
   await expect(page.getByText('Ready to sell?')).toBeVisible();
   const sidebar = page.getByRole('navigation', { name: 'Main navigation' });
   const links = await sidebar.getByRole('link').allInnerTexts();
-  expect(links.map((l) => l.trim())).toEqual(['Point of Sale', 'Dashboard', 'Products', 'My Invoices', 'My Transaction History', 'My Profile']);
-  for (const path of ['/inventory', '/stock/in', '/stock/history', '/sales', '/invoices', '/sales-reports/daily', '/stock/reports/daily', '/users', '/activity', '/settings', '/backups', '/suppliers']) {
+  expect(links.map((l) => l.trim())).toEqual(['Point of Sale', 'Dashboard', 'Products', 'My Sales & Invoices', 'My Profile']);
+  for (const path of ['/inventory', '/stock/in', '/stock/history', '/sales', '/sales-reports/daily', '/stock/reports/daily', '/users', '/activity', '/settings', '/backups', '/suppliers']) {
     await page.goto(path);
     await expect(page.getByRole('heading', { name: 'Access restricted' }), path).toBeVisible();
   }
@@ -379,7 +379,7 @@ test('POS: non-cash payment, and a double-click never records the sale twice', a
   await expect(done).toContainText('GCash');
   await done.getByRole('button', { name: 'New Transaction' }).click();
 
-  await nav('My Transaction History');
+  await nav('My Sales & Invoices');
   const rows = page.getByTestId('sales-table').locator('tbody tr');
   await expect(rows).toHaveCount(2);
   await expect(rows.first()).toContainText('GCash');
@@ -387,7 +387,9 @@ test('POS: non-cash payment, and a double-click never records the sale twice', a
 
   await nav('Dashboard');
   await expect(page.getByTestId('my-summary')).toContainText('₱685.00');
-  await nav('My Invoices');
+  // the old invoice address now opens the merged page
+  await page.goto('/my-invoices');
+  await expect(page).toHaveURL(/\/my-sales$/);
   await expect(page.getByTestId('sales-table').locator('tbody tr')).toHaveCount(2);
   await logout();
 });
@@ -404,7 +406,7 @@ test('second cashier (username only) sells and cannot see the other cashier\'s t
   await page.getByRole('button', { name: 'Complete Sale' }).click();
   await expect(page.getByRole('dialog', { name: 'Sale completed' }).getByTestId('sale-change')).toHaveText('₱40.00');
   await page.getByRole('button', { name: 'New Transaction' }).click();
-  await nav('My Transaction History');
+  await nav('My Sales & Invoices');
   await expect(page.getByTestId('sales-table').locator('tbody tr')).toHaveCount(1);
   await expect(page.getByTestId('sales-table')).not.toContainText('GCash');
   await logout();
@@ -412,7 +414,7 @@ test('second cashier (username only) sells and cannot see the other cashier\'s t
 
 test('admin sees all transactions, filters by cashier and voids a sale (stock returns, invoice marked VOID)', async () => {
   await login(ADMIN.email, ADMIN.password);
-  await nav('Sales Transactions');
+  await nav('Sales Transactions & Invoices');
   const rows = page.getByTestId('sales-table').locator('tbody tr');
   await expect(rows).toHaveCount(3);
   await page.getByLabel('Filter by cashier').selectOption({ label: PEDRO.name });
@@ -432,7 +434,13 @@ test('admin sees all transactions, filters by cashier and voids a sale (stock re
 
   await nav('Inventory');
   await expect(page.getByTestId('inventory-table').locator('tbody tr').filter({ hasText: 'Rice 5kg' })).toContainText('48'); // 50 − 2 sold (void returned 1)
-  await nav('Sales Invoices');
+  // invoices are exported straight from the merged list (no new sale is created)
+  await nav('Sales Transactions & Invoices');
+  const first = page.getByTestId('sales-table').locator('tbody tr').first();
+  const [doc] = await Promise.all([page.waitForEvent('download'), first.getByRole('button', { name: /^Download Word file of INV-/ }).click()]);
+  expect(doc.suggestedFilename()).toMatch(/^INV-\d{6}\.docx$/);
+  const [pdfFile] = await Promise.all([page.waitForEvent('download'), first.getByRole('button', { name: /^Download PDF of INV-/ }).click()]);
+  expect(pdfFile.suggestedFilename()).toMatch(/^INV-\d{6}\.pdf$/);
   await expect(page.getByTestId('sales-table').locator('tbody tr')).toHaveCount(3);
 });
 
@@ -537,7 +545,7 @@ test('responsive layout on a phone', async ({ browser }) => {
   await phone.getByRole('button', { name: 'Remove Cola 1L' }).click();
 
   expect(await phone.locator('meta[name=viewport]').getAttribute('content')).toContain('user-scalable=no');
-  for (const path of ['/', '/pos', '/products', '/categories', '/inventory', '/stock/in', '/stock/out', '/stock/history', '/stock/reports/daily', '/sales', '/invoices', '/sales-reports/daily', '/suppliers', '/customers', '/users', '/activity', '/settings', '/backups', '/profile']) {
+  for (const path of ['/', '/pos', '/products', '/categories', '/inventory', '/stock/in', '/stock/out', '/stock/history', '/stock/reports/daily', '/sales', '/sales-reports/daily', '/suppliers', '/customers', '/users', '/activity', '/settings', '/backups', '/profile']) {
     await phone.goto(path);
     await expect(phone.locator('main h1').first(), path).toBeVisible();
     await phone.waitForTimeout(300);
@@ -605,7 +613,7 @@ test('admin deletes a cashier account and can recover it within 7 days', async (
   await row().getByRole('button', { name: `Deactivate ${PEDRO.name}` }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Deactivate' }).click();
   await expectToast(/deactivated/);
-  await nav('Sales Transactions');
+  await nav('Sales Transactions & Invoices');
   await expect(page.getByTestId('sales-table')).toContainText(PEDRO.name);
   await nav('User Management');
   await row().getByRole('button', { name: `Activate ${PEDRO.name}` }).click();

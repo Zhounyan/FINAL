@@ -87,10 +87,12 @@ export default function App() {
           <Route path="stock/reports/daily" element={<Guard capability="viewStockReports"><StockReportPage period="daily" /></Guard>} />
           <Route path="stock/reports/weekly" element={<Guard capability="viewStockReports"><StockReportPage period="weekly" /></Guard>} />
           <Route path="stock/reports/monthly" element={<Guard capability="viewStockReports"><StockReportPage period="monthly" /></Guard>} />
-          <Route path="sales" element={<Guard capability="viewAllTransactions"><SalesListPage mode="transactions" /></Guard>} />
-          <Route path="invoices" element={<Guard capability="viewAllTransactions"><SalesListPage mode="invoices" /></Guard>} />
-          <Route path="my-transactions" element={<Guard capability="viewTransactions"><SalesListPage mode="transactions" /></Guard>} />
-          <Route path="my-invoices" element={<Guard capability="viewInvoices"><SalesListPage mode="invoices" /></Guard>} />
+          <Route path="sales" element={<Guard capability="viewAllTransactions"><SalesListPage /></Guard>} />
+          <Route path="my-sales" element={<Guard capability="viewTransactions"><SalesListPage /></Guard>} />
+          {/* earlier addresses of the (now merged) transaction and invoice pages */}
+          <Route path="invoices" element={<Navigate to="/sales" replace />} />
+          <Route path="my-transactions" element={<Navigate to="/my-sales" replace />} />
+          <Route path="my-invoices" element={<Navigate to="/my-sales" replace />} />
           <Route path="sales-reports" element={<Navigate to="/sales-reports/daily" replace />} />
           <Route path="sales-reports/daily" element={<Guard capability="viewSalesReports"><SalesReportPage period="daily" /></Guard>} />
           <Route path="sales-reports/weekly" element={<Guard capability="viewSalesReports"><SalesReportPage period="weekly" /></Guard>} />

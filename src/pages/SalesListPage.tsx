@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Ban, Eye, FileDown, FileText, Printer, Receipt, ReceiptText } from 'lucide-react';
+import { Ban, Eye, FileDown, FileText, Printer, ReceiptText } from 'lucide-react';
 import { useAuth } from '@/auth/AuthProvider';
 import { useDebounce, useInvalidateInventory, useResettingPage, useSettings } from '@/hooks/data';
 import { getSale, listCashiers, listSales, logInvoiceAction, PAGE_SIZE, voidSale, type SalesQuery } from '@/lib/api';
@@ -17,13 +17,12 @@ import { Textarea } from '@/components/ui/Field';
 import { LoadingBlock } from '@/components/ui/Spinner';
 import { InvoiceModal } from '@/components/sales/InvoiceModal';
 
-type Mode = 'transactions' | 'invoices';
-
 export function StatusBadge({ sale }: { sale: Pick<Sale, 'status'> }) {
   return sale.status === 'completed' ? <Badge tone="green">Completed</Badge> : <Badge tone="red">Voided</Badge>;
 }
 
-export default function SalesListPage({ mode }: { mode: Mode }) {
+/** One page for sales transactions and their invoices (each sale has exactly one invoice). */
+export default function SalesListPage() {
   const { can, profile } = useAuth();
   const settings = useSettings();
   const qc = useQueryClient();
@@ -81,24 +80,19 @@ export default function SalesListPage({ mode }: { mode: Mode }) {
     }
   };
 
-  const title = mode === 'transactions' ? (all ? 'Sales Transactions' : 'My Transaction History') : all ? 'Sales Invoices' : 'My Invoices';
-  const description =
-    mode === 'transactions'
-      ? all
-        ? 'Every completed and voided sale, with cashier, payment and totals. Finalized sales are never deleted.'
-        : 'Sales you completed. Only your own transactions are shown.'
-      : all
-        ? 'Invoice history. View, print or export any invoice — reprinting never creates a new sale.'
-        : 'Invoices for your own sales. Print or save them as PDF or Word.';
+  const title = all ? 'Sales Transactions & Invoices' : 'My Sales & Invoices';
+  const description = all
+    ? 'Every completed and voided sale with its invoice. View, print or export any invoice (reprinting never creates a new sale). Finalized sales are never deleted — void them instead.'
+    : 'Your own sales and their invoices. Print them or save them as PDF or Word.';
 
   const viewingSale = q.data?.rows.find((r) => r.id === viewing);
 
   return (
     <div className="space-y-6">
-      <PageHeader icon={mode === 'transactions' ? <Receipt className="size-5" /> : <ReceiptText className="size-5" />} title={title} description={description} />
+      <PageHeader icon={<ReceiptText className="size-5" />} title={title} description={description} />
       <Card>
         <div className="grid gap-3 border-b border-line p-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-          <SearchInput value={search} onChange={setSearch} className="sm:col-span-2" placeholder={mode === 'invoices' ? 'Invoice no., customer, product…' : 'Transaction no., customer, product…'} />
+          <SearchInput value={search} onChange={setSearch} className="sm:col-span-2" placeholder="Transaction or invoice no., customer, product…" />
           <input type="date" className="input h-10" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="From date" title="From date" />
           <input type="date" className="input h-10" value={to} onChange={(e) => setTo(e.target.value)} aria-label="To date" title="To date" />
           {all && (
@@ -142,12 +136,12 @@ export default function SalesListPage({ mode }: { mode: Mode }) {
             <table className="table-base" data-testid="sales-table">
               <thead>
                 <tr>
-                  <th>{mode === 'invoices' ? 'Invoice no.' : 'Transaction no.'}</th>
+                  <th>Transaction / invoice no.</th>
                   <th>Date &amp; time</th>
                   {all && <th>Cashier</th>}
                   <th>Customer</th>
                   <th className="num">Items</th>
-                  {mode === 'transactions' && <th className="num">Discount</th>}
+                  <th className="num">Discount</th>
                   <th className="num">Total</th>
                   <th>Payment</th>
                   <th>Status</th>
@@ -160,14 +154,14 @@ export default function SalesListPage({ mode }: { mode: Mode }) {
                 {q.data.rows.map((s) => (
                   <tr key={s.id}>
                     <td>
-                      <span className="font-mono text-sm font-semibold">{mode === 'invoices' ? s.invoice_no : s.reference_no}</span>
-                      <span className="block font-mono text-[11px] text-muted">{mode === 'invoices' ? s.reference_no : s.invoice_no}</span>
+                      <span className="font-mono text-sm font-semibold">{s.reference_no}</span>
+                      <span className="block font-mono text-[11px] text-muted">{s.invoice_no}</span>
                     </td>
                     <td className="text-xs whitespace-nowrap">{fmtDateTime(s.sold_at)}</td>
                     {all && <td className="whitespace-nowrap">{s.created_by_name}</td>}
                     <td>{s.customer_name ?? <span className="text-muted">Walk-in</span>}</td>
                     <td className="num">{fmtInt(s.total_quantity)}</td>
-                    {mode === 'transactions' && <td className="num">{s.discount_amount > 0 ? fmtMoney(s.discount_amount) : '—'}</td>}
+                    <td className="num">{s.discount_amount > 0 ? fmtMoney(s.discount_amount) : '—'}</td>
                     <td className="num font-semibold">{fmtMoney(s.total_amount)}</td>
                     <td className="whitespace-nowrap">{paymentLabel(s.payment_method)}</td>
                     <td>
@@ -180,16 +174,12 @@ export default function SalesListPage({ mode }: { mode: Mode }) {
                       <Button variant="ghost" size="icon" loading={busy === `${s.id}-print`} onClick={() => quick(s, 'print')} aria-label={`Print ${s.invoice_no}`} title="Print invoice">
                         {busy === `${s.id}-print` ? null : <Printer className="size-4" />}
                       </Button>
-                      {mode === 'invoices' && (
-                        <>
-                          <Button variant="ghost" size="icon" loading={busy === `${s.id}-pdf`} onClick={() => quick(s, 'pdf')} aria-label={`Download PDF of ${s.invoice_no}`} title="Export PDF">
-                            {busy === `${s.id}-pdf` ? null : <FileDown className="size-4" />}
-                          </Button>
-                          <Button variant="ghost" size="icon" loading={busy === `${s.id}-docx`} onClick={() => quick(s, 'docx')} aria-label={`Download Word file of ${s.invoice_no}`} title="Export Word">
-                            {busy === `${s.id}-docx` ? null : <FileText className="size-4" />}
-                          </Button>
-                        </>
-                      )}
+                      <Button variant="ghost" size="icon" loading={busy === `${s.id}-pdf`} onClick={() => quick(s, 'pdf')} aria-label={`Download PDF of ${s.invoice_no}`} title="Export PDF">
+                        {busy === `${s.id}-pdf` ? null : <FileDown className="size-4" />}
+                      </Button>
+                      <Button variant="ghost" size="icon" loading={busy === `${s.id}-docx`} onClick={() => quick(s, 'docx')} aria-label={`Download Word file of ${s.invoice_no}`} title="Export Word">
+                        {busy === `${s.id}-docx` ? null : <FileText className="size-4" />}
+                      </Button>
                     </td>
                   </tr>
                 ))}

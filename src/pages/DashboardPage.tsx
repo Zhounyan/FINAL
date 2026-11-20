@@ -236,7 +236,7 @@ function CashierDashboardView() {
             </ul>
           )}
         </Card>
-        <Card title="My recent transactions" actions={<Link to="/my-transactions" className="text-sm font-medium text-brand-700 hover:underline">See all</Link>}>
+        <Card title="My recent transactions" actions={<Link to="/my-sales" className="text-sm font-medium text-brand-700 hover:underline">See all</Link>}>
           {!d.recent_sales.length ? (
             <EmptyState title="No transactions yet" />
           ) : (

@@ -99,7 +99,7 @@ describe('search sanitising (PostgREST filter injection)', () => {
 describe('role permissions (UI layer mirrors database RBAC)', () => {
   it('cashier uses the POS and sees only cashier pages', () => {
     const c = capabilities({ role: 'cashier' });
-    expect(c.usePos && c.viewProducts && c.viewInvoices && c.viewTransactions && c.viewDashboard).toBe(true);
+    expect(c.usePos && c.viewProducts && c.viewTransactions && c.viewDashboard).toBe(true);
     expect(
       c.addProducts || c.editProducts || c.deleteProducts || c.recordStockIn || c.recordStockOut || c.recordAdjustment || c.manageUsers,
     ).toBe(false);

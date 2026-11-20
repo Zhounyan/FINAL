@@ -232,7 +232,7 @@ src/
   hooks/           data hooks, realtime invalidation, pagination
   lib/             api (all Supabase calls), types, periods, documents (print / PDF / Word), invoice, export (PDF/Excel lists), permissions, format
   pages/           POS, Dashboard (admin / cashier), Products & Categories, Inventory, Stock-In / Stock-Out,
-                   Stock Movement History, Sales Transactions & Invoices, Sales Reports, Stock Reports,
+                   Stock Movement History, Sales Transactions & Invoices (one page), Sales Reports, Stock Reports,
                    Customers, Suppliers, Users, Activity Logs, Settings, Backup & Restore, Profile, auth/*
 supabase/
   migrations/      schema, triggers, business RPCs, reporting RPCs, RLS & grants

@@ -34,7 +34,6 @@ export function capabilities(profile: Pick<Profile, 'role'> | null) {
     viewTransactions: active,
     viewAllTransactions: admin,
     voidTransactions: admin,
-    viewInvoices: active,
     viewCustomers: admin,
     manageCustomers: admin,
     viewSuppliers: admin,

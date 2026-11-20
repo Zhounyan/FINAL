@@ -17,7 +17,6 @@ import {
   Menu,
   Package,
   PackageMinus,
-  Receipt,
   ReceiptText,
   Settings,
   ShieldCheck,
@@ -65,8 +64,7 @@ const ADMIN_NAV: NavItem[] = [
       { to: '/stock/reports/monthly', label: 'Monthly Report', icon: FileBarChart, capability: 'viewStockReports' },
     ],
   },
-  { to: '/sales', label: 'Sales Transactions', icon: Receipt, capability: 'viewAllTransactions' },
-  { to: '/invoices', label: 'Sales Invoices', icon: ReceiptText, capability: 'viewAllTransactions' },
+  { to: '/sales', label: 'Sales Transactions & Invoices', icon: ReceiptText, capability: 'viewAllTransactions' },
   {
     to: '/sales-reports',
     label: 'Sales Reports',
@@ -90,8 +88,7 @@ const CASHIER_NAV: NavItem[] = [
   { to: '/pos', label: 'Point of Sale', icon: ShoppingCart, capability: 'usePos' },
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, capability: 'viewDashboard' },
   { to: '/products', label: 'Products', icon: Package, capability: 'viewProducts' },
-  { to: '/my-invoices', label: 'My Invoices', icon: ReceiptText, capability: 'viewInvoices' },
-  { to: '/my-transactions', label: 'My Transaction History', icon: Receipt, capability: 'viewTransactions' },
+  { to: '/my-sales', label: 'My Sales & Invoices', icon: ReceiptText, capability: 'viewTransactions' },
   { to: '/profile', label: 'My Profile', icon: UserCircle, capability: 'viewDashboard' },
 ];
 
