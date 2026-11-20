@@ -1,44 +1,49 @@
 import type { AppRole, Profile } from './types';
 
 /**
- * UI-level capability map. The database (RLS + RPC role checks) and the Edge
- * Functions enforce the same rules — this only decides what to show.
+ * UI-level capability map for the two roles. The database (RLS + RPC role
+ * checks) and the Edge Functions enforce the same rules — this only decides
+ * what to show.
  */
-export function capabilities(profile: Pick<Profile, 'role' | 'can_add_products'> | null) {
+export function capabilities(profile: Pick<Profile, 'role'> | null) {
   const role: AppRole | null = profile?.role ?? null;
   const admin = role === 'admin';
-  const staff = role === 'staff';
-  const owner = role === 'owner';
+  const cashier = role === 'cashier';
+  const active = admin || cashier;
   return {
     role,
     isAdmin: admin,
-    isOwner: owner,
-    isStaff: staff,
-    viewDashboard: Boolean(role),
-    viewProducts: Boolean(role),
-    addProducts: admin || (staff && Boolean(profile?.can_add_products)),
+    isCashier: cashier,
+    viewDashboard: active,
+    usePos: active,
+    viewProducts: active,
+    addProducts: admin,
     editProducts: admin,
     deleteProducts: admin,
+    viewCostPrices: admin,
     manageCategories: admin,
-    viewStockManagement: Boolean(role),
-    recordStockIn: admin || staff,
-    recordSale: admin || staff,
-    recordStockOut: admin || staff,
+    viewInventory: admin,
+    recordStockIn: admin,
+    recordStockOut: admin,
     recordAdjustment: admin,
     reverseMovements: admin,
-    viewDailyMovements: Boolean(role),
-    viewMovementHistory: admin || owner,
-    viewCustomers: admin || owner,
+    viewMovementHistory: admin,
+    viewStockReports: admin,
+    viewSalesReports: admin,
+    /** every active user can see transactions — cashiers only their own (RLS) */
+    viewTransactions: active,
+    viewAllTransactions: admin,
+    voidTransactions: admin,
+    viewInvoices: active,
+    viewCustomers: admin,
     manageCustomers: admin,
-    viewSuppliers: admin || owner,
+    viewSuppliers: admin,
     manageSuppliers: admin,
-    viewReports: admin || owner,
     manageUsers: admin,
-    /** Backup & Restore: Admin only (also enforced by RLS and the backup Edge Functions) */
+    viewActivity: admin,
+    /** Backup & Restore: Administrator only (also enforced by RLS and the backup Edge Functions) */
     manageBackups: admin,
     manageSettings: admin,
-    viewActivity: admin || owner,
-    viewFinancials: admin || owner,
   };
 }
 
@@ -46,7 +51,7 @@ export type Capabilities = ReturnType<typeof capabilities>;
 export type Capability = Exclude<keyof Capabilities, 'role'>;
 
 export const ROLE_LABELS: Record<AppRole, string> = {
-  owner: 'Owner',
+  owner: 'Owner (retired)',
   admin: 'Administrator',
-  staff: 'Staff',
+  cashier: 'Cashier',
 };

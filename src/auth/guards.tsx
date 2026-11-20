@@ -6,10 +6,11 @@ import { FullPageLoader } from '@/components/ui/Spinner';
 import { ShieldAlert } from 'lucide-react';
 
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const { session, profile, loading } = useAuth();
+  const { session, profile, loading, signedOut } = useAuth();
   const location = useLocation();
   if (loading || (session && !profile)) return <FullPageLoader label="Loading your workspace…" />;
-  if (!session || !profile) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  // After an explicit Logout the next person starts on their own home page, not on the previous user's page.
+  if (!session || !profile) return <Navigate to="/login" replace state={signedOut ? undefined : { from: location.pathname }} />;
   if (profile.must_change_password && location.pathname !== '/profile') {
     return <Navigate to="/profile?tab=password&required=1" replace />;
   }

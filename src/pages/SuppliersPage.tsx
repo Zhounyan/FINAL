@@ -224,7 +224,7 @@ function SupplierDetail({ supplier, onClose }: { supplier: Supplier; onClose: ()
         <DetailRow label="Email">{supplier.email ?? '—'}</DetailRow>
         <DetailRow label="Business address">{supplier.address ?? '—'}</DetailRow>
         <DetailRow label="Date added">{fmtDateTime(supplier.created_at)}</DetailRow>
-        <DetailRow label="Deliveries">{fmtInt(supplier.delivery_count)} · {fmtInt(supplier.total_quantity)} units{can.viewFinancials ? ` · ${fmtMoney(supplier.total_cost)}` : ''}</DetailRow>
+        <DetailRow label="Deliveries">{fmtInt(supplier.delivery_count)} · {fmtInt(supplier.total_quantity)} units{can.viewCostPrices ? ` · ${fmtMoney(supplier.total_cost)}` : ''}</DetailRow>
       </dl>
       <h3 className="mt-6 mb-2 text-sm font-semibold">Delivery history</h3>
       <div className="rounded-xl border border-line">

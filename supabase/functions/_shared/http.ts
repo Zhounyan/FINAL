@@ -101,7 +101,7 @@ export interface Caller {
     id: string;
     email: string;
     full_name: string;
-    role: 'owner' | 'admin' | 'staff';
+    role: 'owner' | 'admin' | 'cashier';
     is_active: boolean;
   };
 }

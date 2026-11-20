@@ -3,17 +3,22 @@ import { edgeError } from './errors';
 import { ilikeOr } from './search';
 import type {
   ActivityLog,
-  BreakdownRow,
+  AdminDashboard,
+  CashierDashboard,
   Category,
   Customer,
   DashboardStats,
   MovementType,
-  PeriodSummaryRow,
+  PaymentMethod,
+  PosProduct,
   ProductRow,
   Profile,
   Sale,
   SaleItem,
+  SalesReport,
   StockMovement,
+  StockOutType,
+  StockReport,
   StoreSettings,
   Supplier,
 } from './types';
@@ -72,10 +77,14 @@ export async function fetchSettings(): Promise<StoreSettings> {
     currency: String(map.currency ?? 'PHP'),
     timezone: String(map.timezone ?? 'Asia/Manila'),
     default_min_stock: Number(map.default_min_stock ?? 10),
+    payment_methods: Array.isArray(map.payment_methods) ? (map.payment_methods as PaymentMethod[]) : ['cash'],
+    cashier_max_discount_pct: Number(map.cashier_max_discount_pct ?? 0),
+    invoice_footer: String(map.invoice_footer ?? ''),
+    store_tin: String(map.store_tin ?? ''),
   };
 }
 
-export async function updateSetting(key: keyof StoreSettings, value: string | number) {
+export async function updateSetting(key: keyof StoreSettings, value: string | number | string[]) {
   return unwrap(await supabase.rpc('update_setting', { p_key: key, p_value: value }));
 }
 
@@ -98,7 +107,7 @@ export async function updateMyProfile(full_name: string, phone: string) {
 /** Days an Admin has to recover a deleted account. */
 export const ACCOUNT_RECOVERY_DAYS = 7;
 
-export async function listUsers(params: { search?: string; page: number }): Promise<Page<Profile>> {
+export async function listUsers(params: { search?: string; page: number; status?: 'all' | 'active' | 'inactive'; role?: 'all' | 'admin' | 'cashier' }): Promise<Page<Profile>> {
   // Permanently remove accounts whose 7-day recovery window has passed.
   await supabase.rpc('purge_expired_user_deletions');
   let q = supabase
@@ -106,8 +115,11 @@ export async function listUsers(params: { search?: string; page: number }): Prom
     .select('*', { count: 'exact' })
     .is('deleted_at', null)
     .order('created_at', { ascending: false });
-  const or = params.search ? ilikeOr(['full_name', 'email'], params.search) : null;
+  const or = params.search ? ilikeOr(['full_name', 'email', 'username'], params.search) : null;
   if (or) q = q.or(or);
+  if (params.status === 'active') q = q.eq('is_active', true);
+  if (params.status === 'inactive') q = q.eq('is_active', false);
+  if (params.role && params.role !== 'all') q = q.eq('role', params.role);
   const [a, b] = range(params.page);
   const res = await q.range(a, b);
   return { rows: unwrap(res) ?? [], total: res.count ?? 0 };
@@ -122,8 +134,8 @@ export async function recoverUserAccount(userId: string) {
 }
 
 export type AdminUserAction =
-  | { action: 'create'; email: string; full_name: string; phone?: string; role: 'owner' | 'staff'; password: string; can_add_products: boolean; must_change_password: boolean }
-  | { action: 'update'; user_id: string; full_name: string; phone?: string; role?: 'owner' | 'staff' | 'admin'; can_add_products?: boolean }
+  | { action: 'create'; username: string; email?: string; full_name: string; phone?: string; password: string; must_change_password: boolean }
+  | { action: 'update'; user_id: string; full_name: string; phone?: string; username?: string }
   | { action: 'set_active'; user_id: string; active: boolean }
   | { action: 'reset_password'; user_id: string; new_password: string };
 
@@ -170,7 +182,7 @@ export async function listProducts(p: ProductQuery): Promise<Page<ProductRow>> {
     .eq('is_archived', Boolean(p.archived))
     .order('created_at', { ascending: false })
     .order('id', { ascending: false });
-  const or = p.search ? ilikeOr(['name', 'sku', 'category_name'], p.search) : null;
+  const or = p.search ? ilikeOr(['name', 'sku', 'barcode', 'category_name'], p.search) : null;
   if (or) q = q.or(or);
   if (p.categoryId) q = q.eq('category_id', p.categoryId);
   if (p.status && p.status !== 'all') q = q.eq('stock_status', p.status);
@@ -197,6 +209,9 @@ export interface ProductInput {
   description?: string;
   opening_stock?: number;
   supplier_id?: number | null;
+  barcode?: string;
+  /** data URL; undefined = keep the current image when editing, null = remove it */
+  image_url?: string | null;
 }
 
 export async function createProduct(i: ProductInput) {
@@ -212,6 +227,8 @@ export async function createProduct(i: ProductInput) {
       p_description: i.description ?? null,
       p_opening_stock: i.opening_stock ?? 0,
       p_supplier_id: i.supplier_id ?? null,
+      p_barcode: i.barcode?.trim() || null,
+      p_image_url: i.image_url ?? null,
     }),
   );
 }
@@ -228,8 +245,17 @@ export async function updateProduct(id: number, i: ProductInput) {
       p_selling_price: i.selling_price,
       p_min_stock_level: i.min_stock_level,
       p_description: i.description ?? null,
+      p_barcode: i.barcode?.trim() || null,
+      p_supplier_id: i.supplier_id ?? null,
+      p_image_url: i.image_url ?? null,
+      p_keep_image: i.image_url === undefined,
     }),
   );
+}
+
+export async function productImage(id: number): Promise<string | null> {
+  const row = unwrap(await supabase.from('products').select('image_url').eq('id', id).maybeSingle()) as { image_url: string | null } | null;
+  return row?.image_url ?? null;
 }
 
 export async function deleteProduct(id: number): Promise<'deleted' | 'archived'> {
@@ -366,10 +392,10 @@ export async function recordStockIn(i: {
 export async function recordStockOut(i: {
   product_id: number;
   quantity: number;
-  movement_type: Extract<MovementType, 'damaged' | 'lost' | 'other_out'>;
+  movement_type: StockOutType;
   customer_id?: number | null;
   reference_no?: string;
-  reason: string;
+  reason?: string;
 }) {
   return unwrap(
     await supabase.rpc('record_stock_out', {
@@ -378,27 +404,133 @@ export async function recordStockOut(i: {
       p_movement_type: i.movement_type,
       p_customer_id: i.customer_id ?? null,
       p_reference_no: i.reference_no ?? null,
-      p_reason: i.reason,
+      p_reason: i.reason?.trim() || null,
     }),
   ) as StockMovement;
 }
 
-export async function recordSale(i: {
+// ---------------------------------------------------------------------------
+// Point of Sale
+// ---------------------------------------------------------------------------
+export interface SaleInput {
   items: { product_id: number; quantity: number }[];
+  payment_method: PaymentMethod;
+  amount_received?: number | null;
+  discount?: number;
   customer_id?: number | null;
-  reference_no?: string;
+  customer_name?: string;
+  payment_reference?: string;
   notes?: string;
+  /** idempotency key: the same key never records a second sale */
   client_request_id: string;
-}) {
+}
+
+export async function recordSale(i: SaleInput) {
   return unwrap(
     await supabase.rpc('record_sale', {
       p_items: i.items,
+      p_payment_method: i.payment_method,
+      p_amount_received: i.amount_received ?? null,
+      p_discount: i.discount ?? 0,
       p_customer_id: i.customer_id ?? null,
-      p_reference_no: i.reference_no ?? null,
-      p_notes: i.notes ?? null,
+      p_customer_name: i.customer_name?.trim() || null,
+      p_payment_reference: i.payment_reference?.trim() || null,
+      p_notes: i.notes?.trim() || null,
       p_client_request_id: i.client_request_id,
     }),
   ) as Sale;
+}
+
+export async function posSearch(p: { query?: string; categoryId?: number | null; sort?: string; inStockOnly?: boolean; page: number; pageSize?: number }): Promise<Page<PosProduct>> {
+  const size = p.pageSize ?? 24;
+  const rows = unwrap(
+    await supabase.rpc('pos_search_products', {
+      p_query: p.query?.trim() || null,
+      p_category_id: p.categoryId ?? null,
+      p_sort: p.sort ?? 'relevance',
+      p_in_stock_only: Boolean(p.inStockOnly),
+      p_limit: size,
+      p_offset: (p.page - 1) * size,
+    }),
+  ) as PosProduct[];
+  return { rows, total: Number(rows[0]?.total_count ?? 0) };
+}
+
+/** Exact barcode / SKU lookup used by USB barcode scanners. */
+export async function posLookupCode(codeValue: string): Promise<PosProduct | null> {
+  const rows = unwrap(await supabase.rpc('pos_lookup_code', { p_code: codeValue })) as PosProduct[];
+  return rows[0] ?? null;
+}
+
+export async function voidSale(id: number, reason: string) {
+  return unwrap(await supabase.rpc('void_sale', { p_sale_id: id, p_reason: reason })) as Sale;
+}
+
+export async function logInvoiceAction(saleId: number, action: 'printed' | 'exported_pdf' | 'exported_docx') {
+  const { error } = await supabase.rpc('log_invoice_action', { p_sale_id: saleId, p_action: action });
+  if (error) console.warn('invoice audit log failed', error);
+}
+
+export async function getSale(id: number): Promise<{ sale: Sale; items: SaleItem[] }> {
+  const sale = unwrap(await supabase.from('sales').select('*').eq('id', id).single()) as Sale;
+  return { sale, items: await saleItems(id) };
+}
+
+export interface SalesQuery {
+  from?: string | null;
+  to?: string | null;
+  search?: string;
+  cashierId?: string | null;
+  paymentMethod?: string | null;
+  status?: 'completed' | 'voided' | null;
+  sort?: 'newest' | 'oldest' | 'amount_desc' | 'amount_asc';
+  page: number;
+  pageSize?: number;
+}
+
+export async function listSales(p: SalesQuery): Promise<Page<Sale>> {
+  const size = p.pageSize ?? PAGE_SIZE;
+  const rows = unwrap(
+    await supabase.rpc('list_sales', {
+      p_from: p.from || null,
+      p_to: p.to || null,
+      p_search: p.search?.trim() || null,
+      p_cashier_id: p.cashierId || null,
+      p_payment_method: p.paymentMethod || null,
+      p_status: p.status || null,
+      p_sort: p.sort ?? 'newest',
+      p_limit: size,
+      p_offset: (p.page - 1) * size,
+    }),
+  ) as Sale[];
+  return { rows, total: Number(rows[0]?.total_count ?? 0) };
+}
+
+export async function salesReport(from: string, to: string): Promise<SalesReport> {
+  return unwrap(await supabase.rpc('sales_report', { p_from: from, p_to: to }));
+}
+
+export async function stockReport(p: { from: string; to: string; productId?: number | null; types?: MovementType[] }): Promise<StockReport> {
+  return unwrap(
+    await supabase.rpc('stock_report', {
+      p_from: p.from,
+      p_to: p.to,
+      p_product_id: p.productId ?? null,
+      p_types: p.types && p.types.length ? p.types : null,
+    }),
+  );
+}
+
+export async function adminDashboard(): Promise<AdminDashboard> {
+  return unwrap(await supabase.rpc('admin_dashboard'));
+}
+
+export async function myDashboard(): Promise<CashierDashboard> {
+  return unwrap(await supabase.rpc('my_dashboard'));
+}
+
+export async function listCashiers(): Promise<Pick<Profile, 'id' | 'full_name' | 'username' | 'is_active'>[]> {
+  return unwrap(await supabase.from('profiles').select('id, full_name, username, is_active').eq('role', 'cashier').order('full_name'));
 }
 
 export async function recordAdjustment(i: { product_id: number; reason: string; new_quantity?: number | null; change?: number | null; reference_no?: string }) {
@@ -417,15 +549,6 @@ export async function reverseMovement(id: number, reason: string) {
   return unwrap(await supabase.rpc('reverse_movement', { p_movement_id: id, p_reason: reason })) as StockMovement;
 }
 
-export async function listSales(p: { page: number; search?: string }): Promise<Page<Sale>> {
-  let q = supabase.from('sales').select('*', { count: 'exact' }).order('sold_at', { ascending: false }).order('id', { ascending: false });
-  const or = p.search ? ilikeOr(['reference_no', 'customer_name', 'created_by_name'], p.search) : null;
-  if (or) q = q.or(or);
-  const [a, b] = range(p.page);
-  const res = await q.range(a, b);
-  return { rows: unwrap(res) ?? [], total: res.count ?? 0 };
-}
-
 export async function saleItems(saleId: number): Promise<SaleItem[]> {
   return unwrap(await supabase.from('sale_items').select('*').eq('sale_id', saleId).order('id'));
 }
@@ -440,34 +563,8 @@ export interface MovementFilter {
   productId?: number | null;
 }
 
-export async function movementSummary(f: MovementFilter & { bucket: 'day' | 'month' }): Promise<PeriodSummaryRow[]> {
-  return unwrap(
-    await supabase.rpc('stock_movement_summary', {
-      p_from: f.from,
-      p_to: f.to,
-      p_bucket: f.bucket,
-      p_category_id: f.categoryId ?? null,
-      p_product_id: f.productId ?? null,
-    }),
-  );
-}
-
-export async function movementBreakdown(f: MovementFilter & { group: 'product' | 'category' }): Promise<BreakdownRow[]> {
-  const rows: BreakdownRow[] = unwrap(
-    await supabase.rpc('stock_movement_breakdown', {
-      p_from: f.from,
-      p_to: f.to,
-      p_group: f.group,
-      p_category_id: f.categoryId ?? null,
-      p_product_id: f.productId ?? null,
-    }),
-  );
-  // Newest products / categories first (ids increase as records are created).
-  return [...(rows ?? [])].sort((x, y) => y.group_id - x.group_id);
-}
-
 export async function listMovements(
-  f: MovementFilter & { types?: MovementType[]; search?: string; page: number; pageSize?: number },
+  f: MovementFilter & { types?: MovementType[]; search?: string; page: number; pageSize?: number; sort?: 'newest' | 'oldest' | 'quantity' },
 ): Promise<Page<StockMovement>> {
   const size = f.pageSize ?? PAGE_SIZE;
   const rows = unwrap(
@@ -480,6 +577,7 @@ export async function listMovements(
       p_search: f.search?.trim() || null,
       p_limit: size,
       p_offset: (f.page - 1) * size,
+      p_sort: f.sort ?? 'newest',
     }),
   ) as StockMovement[];
   return { rows, total: rows[0]?.total_count ?? 0 };
@@ -492,17 +590,14 @@ export async function dashboardStats(days = 14): Promise<DashboardStats> {
   return unwrap(await supabase.rpc('dashboard_stats', { p_days: days }));
 }
 
-export async function recentMovements(limit = 8): Promise<StockMovement[]> {
-  return unwrap(
-    await supabase.from('stock_movements').select('*').order('occurred_at', { ascending: false }).order('id', { ascending: false }).limit(limit),
-  );
-}
-
-export async function listActivity(p: { page: number; search?: string; userId?: string; pageSize?: number }): Promise<Page<ActivityLog>> {
+export async function listActivity(p: { page: number; search?: string; userId?: string; action?: string; from?: string; to?: string; pageSize?: number }): Promise<Page<ActivityLog>> {
   let q = supabase.from('activity_logs').select('*', { count: 'exact' }).order('created_at', { ascending: false }).order('id', { ascending: false });
   const or = p.search ? ilikeOr(['summary', 'user_name', 'action', 'entity_type'], p.search) : null;
   if (or) q = q.or(or);
   if (p.userId) q = q.eq('user_id', p.userId);
+  if (p.action) q = q.eq('action', p.action);
+  if (p.from) q = q.gte('created_at', p.from);
+  if (p.to) q = q.lt('created_at', p.to);
   const [a, b] = range(p.page, p.pageSize);
   const res = await q.range(a, b);
   return { rows: unwrap(res) ?? [], total: res.count ?? 0 };

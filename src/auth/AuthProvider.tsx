@@ -15,6 +15,8 @@ interface AuthContextValue {
   recovery: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  /** true after the user pressed Logout (the next sign-in starts fresh, not on the previous user's page) */
+  signedOut: boolean;
   refreshProfile: () => Promise<Profile | null>;
 }
 
@@ -27,6 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [recovery, setRecovery] = useState(authLinkHint.recovery);
   const loadedFor = useRef<string | null>(null);
+  const [signedOut, setSignedOut] = useState(false);
 
   const loadProfile = useCallback(async (userId: string | null) => {
     if (!userId) {
@@ -82,19 +85,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(
     async (email: string, password: string) => {
+      // `email` may also be a cashier username; the auth-login function resolves it.
       const res = await invokeFunction<{ session: { access_token: string; refresh_token: string } }>('auth-login', {
-        email,
+        login: email,
         password,
       });
       const { data, error } = await supabase.auth.setSession(res.session);
       if (error || !data.session) throw error ?? new Error('Could not start your session.');
       const p = await loadProfile(data.session.user.id);
       if (!p) throw new Error('This account is not active. Please contact the administrator.');
+      setSignedOut(false);
     },
     [loadProfile],
   );
 
   const signOut = useCallback(async () => {
+    // Audit the sign-out while the session is still valid (best effort).
+    await supabase.rpc('log_logout').then(
+      () => undefined,
+      () => undefined,
+    );
+    setSignedOut(true);
     await supabase.auth.signOut();
     queryClient.clear();
     setProfile(null);
@@ -103,9 +114,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshProfile = useCallback(() => loadProfile(session?.user.id ?? null), [loadProfile, session]);
 
+  // Never pair one user's session with another user's profile (e.g. right after switching accounts):
+  // until the matching profile is loaded the app shows a loader instead of the previous user's pages.
+  const current = profile && session && profile.id === session.user.id ? profile : null;
   const value = useMemo<AuthContextValue>(
-    () => ({ session, profile, can: capabilities(profile), loading, recovery, signIn, signOut, refreshProfile }),
-    [session, profile, loading, recovery, signIn, signOut, refreshProfile],
+    () => ({ session, profile: current, can: capabilities(current), loading, recovery, signIn, signOut, signedOut, refreshProfile }),
+    [session, current, loading, recovery, signIn, signOut, signedOut, refreshProfile],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

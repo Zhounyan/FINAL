@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Eye, FolderTree, Package, Pencil, Plus, Power, PowerOff, Tags, Trash2 } from 'lucide-react';
+import { Eye, FolderTree, ImagePlus, Package, Pencil, Plus, Power, PowerOff, Tags, Trash2, X } from 'lucide-react';
 import {
   createProduct,
   deleteCategory,
@@ -13,6 +13,7 @@ import {
   listMovements,
   listProducts,
   PAGE_SIZE,
+  productImage,
   setProductActive,
   saveCategory,
   updateProduct,
@@ -27,7 +28,8 @@ import { useCategories, useDebounce, useInvalidateInventory, useSettings, useSto
 import { Button } from '@/components/ui/Button';
 import { Input, Select, Textarea } from '@/components/ui/Field';
 import { ConfirmDialog, Modal } from '@/components/ui/Modal';
-import { Badge, Card, DetailRow, EmptyState, ErrorState, PageHeader, Pagination, SearchInput, TableWrap, Tabs } from '@/components/ui/Display';
+import { Badge, Card, DetailRow, EmptyState, ErrorState, PageHeader, Pagination, SearchInput, TableWrap } from '@/components/ui/Display';
+import { imageFileToAvatar } from '@/lib/image';
 import { LoadingBlock } from '@/components/ui/Spinner';
 import { MovementTable } from '@/components/stock/MovementViews';
 
@@ -39,20 +41,23 @@ export function StockStatusBadge({ status }: { status: StockStatus }) {
 
 export default function ProductsPage() {
   const { can } = useAuth();
-  const [params, setParams] = useSearchParams();
-  const tab = (params.get('tab') as 'products' | 'categories') ?? 'products';
   return (
     <div className="space-y-6">
-      <PageHeader icon={<Package className="size-5" />} title="Products" description="Product catalogue, categories, prices and stock thresholds." />
-      <Tabs
-        value={tab}
-        onChange={(t) => setParams(t === 'products' ? {} : { tab: t })}
-        tabs={[
-          { id: 'products', label: 'Products', icon: <Package className="size-4" /> },
-          { id: 'categories', label: 'Categories', icon: <FolderTree className="size-4" />, hidden: !can.viewProducts },
-        ]}
+      <PageHeader
+        icon={<Package className="size-5" />}
+        title="Products"
+        description={can.editProducts ? 'Product catalogue: codes, barcodes, prices, suppliers and stock thresholds.' : 'Look up prices and product availability.'}
       />
-      {tab === 'categories' ? <CategoriesPanel /> : <ProductsPanel />}
+      <ProductsPanel />
+    </div>
+  );
+}
+
+export function CategoriesPage() {
+  return (
+    <div className="space-y-6">
+      <PageHeader icon={<FolderTree className="size-5" />} title="Categories" description="Group products so they are easier to find at the Point of Sale and in reports." />
+      <CategoriesPanel />
     </div>
   );
 }
@@ -115,7 +120,7 @@ function ProductsPanel() {
       }
     >
       <div className="grid gap-3 border-b border-line p-4 sm:grid-cols-2 xl:grid-cols-[2fr_1fr_1fr_auto]">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search name, SKU or category…" />
+        <SearchInput value={search} onChange={setSearch} placeholder="Search name, SKU, barcode or category…" />
         <select className="input" value={categoryId ?? ''} onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : null)} aria-label="Filter by category">
           <option value="">All categories</option>
           {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -151,7 +156,7 @@ function ProductsPanel() {
                 <th className="num">Stock</th>
                 <th className="num">Min</th>
                 <th>Status</th>
-                {can.viewFinancials && <th className="num">Cost</th>}
+                {can.viewCostPrices && <th className="num">Cost</th>}
                 <th className="num">Price</th>
                 <th>Added</th>
                 <th><span className="sr-only">Actions</span></th>
@@ -164,13 +169,13 @@ function ProductsPanel() {
                     <button type="button" className="text-left font-medium text-ink hover:text-brand-700 hover:underline" onClick={() => setViewing(p)}>
                       {p.name}
                     </button>
-                    <span className="block text-xs text-muted">{code('PRD', p.id)} · {p.sku}</span>
+                    <span className="block text-xs text-muted">{p.sku}{p.barcode ? ` · ${p.barcode}` : ''}</span>
                   </td>
                   <td className="whitespace-nowrap">{p.category_name}</td>
                   <td className="num font-semibold">{fmtInt(p.current_stock)} <span className="text-xs font-normal text-muted">{p.unit}</span></td>
                   <td className="num text-muted">{fmtInt(p.min_stock_level)}</td>
                   <td>{p.is_archived ? <Badge tone="slate"><PowerOff className="size-3" /> Inactive</Badge> : <StockStatusBadge status={p.stock_status} />}</td>
-                  {can.viewFinancials && <td className="num">{fmtMoney(p.purchase_price)}</td>}
+                  {can.viewCostPrices && <td className="num">{fmtMoney(p.purchase_price)}</td>}
                   <td className="num">{fmtMoney(p.selling_price)}</td>
                   <td className="text-xs whitespace-nowrap text-muted">{fmtDate(p.created_at)}</td>
                   <td className="text-right whitespace-nowrap">
@@ -212,7 +217,7 @@ function ProductsPanel() {
         title="Deactivate product?"
         message={
           <>
-            <b className="text-ink">{deactivating?.name}</b> will be hidden from Stock In and Record Sale and cannot be sold until you reactivate it.
+            <b className="text-ink">{deactivating?.name}</b> will be hidden from Stock-In and the Point of Sale and cannot be sold until you reactivate it.
             Its {deactivating ? fmtInt(deactivating.current_stock) : 0} {deactivating?.unit} on hand and its full history are kept, and it still appears in reports.
             Find it later with <b>Show inactive</b>.
           </>
@@ -242,7 +247,8 @@ function ProductsPanel() {
 
 const productSchema = z
   .object({
-    sku: z.string().trim().min(1, 'SKU or barcode is required').max(64),
+    sku: z.string().trim().min(1, 'SKU / product code is required').max(64),
+    barcode: z.union([z.literal(''), z.string().trim().regex(/^[A-Za-z0-9._-]{3,64}$/, 'Letters and numbers only (3–64 characters)')]),
     name: z.string().trim().min(1, 'Product name is required').max(150),
     category_id: z.coerce.number<string | number>().int().positive('Select a category'),
     unit: z.string().trim().min(1, 'Unit is required').max(20),
@@ -259,8 +265,23 @@ type ProductValues = z.output<typeof productSchema>;
 function ProductFormModal({ product, onClose }: { product: ProductRow | null; onClose: () => void }) {
   const categories = useCategories();
   const settings = useSettings();
-  const suppliers = useSupplierOptions(!product);
+  const suppliers = useSupplierOptions();
   const invalidate = useInvalidateInventory();
+  // undefined = keep the saved image, null = remove it, string = new image
+  const [image, setImage] = useState<string | null | undefined>(undefined);
+  const [currentImage, setCurrentImage] = useState<string | null>(null);
+  useEffect(() => {
+    if (product?.has_image) void productImage(product.id).then(setCurrentImage);
+  }, [product]);
+  const shownImage = image === undefined ? currentImage : image;
+  const pickImage = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      setImage(await imageFileToAvatar(file, 320));
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
   const { register, handleSubmit, formState } = useForm<ProductForm, unknown, ProductValues>({
     resolver: zodResolver(productSchema),
     defaultValues: product
@@ -274,13 +295,15 @@ function ProductFormModal({ product, onClose }: { product: ProductRow | null; on
           min_stock_level: product.min_stock_level,
           description: product.description ?? '',
           opening_stock: 0,
+          barcode: product.barcode ?? '',
+          supplier_id: product.supplier_id ? String(product.supplier_id) : '',
         }
-      : { sku: '', name: '', category_id: '', unit: 'pc', purchase_price: 0, selling_price: 0, min_stock_level: settings.data?.default_min_stock ?? 10, description: '', opening_stock: 0, supplier_id: '' },
+      : { sku: '', barcode: '', name: '', category_id: '', unit: 'pc', purchase_price: 0, selling_price: 0, min_stock_level: settings.data?.default_min_stock ?? 10, description: '', opening_stock: 0, supplier_id: '' },
   });
 
   const save = useMutation({
     mutationFn: (v: ProductValues) => {
-      const input: ProductInput = { ...v, supplier_id: v.supplier_id ? Number(v.supplier_id) : null };
+      const input: ProductInput = { ...v, supplier_id: v.supplier_id ? Number(v.supplier_id) : null, image_url: product ? image : (image ?? null) };
       return product ? updateProduct(product.id, input) : createProduct(input);
     },
     onSuccess: async () => {
@@ -300,7 +323,7 @@ function ProductFormModal({ product, onClose }: { product: ProductRow | null; on
       busy={save.isPending}
       size="lg"
       title={product ? `Edit ${product.name}` : 'Add product'}
-      description={product ? 'Stock quantities change only through stock movements.' : 'Opening stock is recorded as a Stock In movement.'}
+      description={product ? 'Stock quantities change only through stock movements.' : 'Opening stock is recorded as a Stock-In movement.'}
       footer={
         <>
           <Button variant="outline" onClick={onClose} disabled={save.isPending}>Cancel</Button>
@@ -310,7 +333,8 @@ function ProductFormModal({ product, onClose }: { product: ProductRow | null; on
     >
       <form id="product-form" onSubmit={handleSubmit((v) => save.mutate(v))} className="grid gap-4 sm:grid-cols-2" noValidate>
         <Input label="Product name" required error={formState.errors.name?.message} {...register('name')} wrapperClassName="sm:col-span-2" />
-        <Input label="SKU / Barcode" required error={formState.errors.sku?.message} {...register('sku')} />
+        <Input label="SKU / Product code" required error={formState.errors.sku?.message} {...register('sku')} />
+        <Input label="Barcode" placeholder="Scan or type the barcode" error={formState.errors.barcode?.message} {...register('barcode')} />
         <Select label="Category" required error={formState.errors.category_id?.message} {...register('category_id')}>
           <option value="">Select category…</option>
           {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -324,16 +348,32 @@ function ProductFormModal({ product, onClose }: { product: ProductRow | null; on
         <Input label="Minimum stock level" type="number" min={0} step={1} required error={formState.errors.min_stock_level?.message} {...register('min_stock_level')} hint="Alerts trigger at or below this quantity." />
         <Input label="Purchase price" type="number" min={0} step="0.01" error={formState.errors.purchase_price?.message} {...register('purchase_price')} />
         <Input label="Selling price" type="number" min={0} step="0.01" error={formState.errors.selling_price?.message} {...register('selling_price')} />
+        <Select label="Supplier" {...register('supplier_id')}>
+          <option value="">None</option>
+          {suppliers.data?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </Select>
         {!product && (
-          <>
-            <Input label="Opening stock" type="number" min={0} step={1} error={formState.errors.opening_stock?.message} {...register('opening_stock')} hint="Units already on hand (optional)." />
-            <Select label="Supplier of opening stock" {...register('supplier_id')}>
-              <option value="">None</option>
-              {suppliers.data?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </Select>
-          </>
+          <Input label="Opening stock" type="number" min={0} step={1} error={formState.errors.opening_stock?.message} {...register('opening_stock')} hint="Units already on hand (optional)." />
         )}
         <Textarea label="Description" error={formState.errors.description?.message} {...register('description')} wrapperClassName="sm:col-span-2" />
+        <div className="flex items-center gap-4 sm:col-span-2">
+          {shownImage ? (
+            <img src={shownImage} alt="Product" className="size-20 rounded-xl border border-line object-cover" />
+          ) : (
+            <span className="flex size-20 items-center justify-center rounded-xl border border-dashed border-line text-muted"><ImagePlus className="size-6" /></span>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg border border-line bg-white px-3 text-sm font-medium hover:bg-brand-50">
+              <ImagePlus className="size-4" /> {shownImage ? 'Change image' : 'Add product image'}
+              <input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" aria-label="Product image" onChange={(e) => pickImage(e.target.files?.[0])} />
+            </label>
+            {shownImage && (
+              <Button variant="ghost" size="sm" icon={<X className="size-4" />} onClick={() => setImage(null)}>
+                Remove image
+              </Button>
+            )}
+          </div>
+        </div>
       </form>
     </Modal>
   );
@@ -345,17 +385,21 @@ function ProductDetailModal({ product, onClose }: { product: ProductRow; onClose
   const history = useQuery({
     queryKey: ['movements', 'product-detail', product.id],
     queryFn: () => listMovements({ from: '2000-01-01', to: today, productId: product.id, page: 1, pageSize: 10 }),
+    enabled: can.viewMovementHistory,
   });
+  const image = useQuery({ queryKey: ['products', 'image', product.id], queryFn: () => productImage(product.id), enabled: product.has_image });
   return (
-    <Modal open onClose={onClose} size="xl" title={product.name} description={`${code('PRD', product.id)} · SKU ${product.sku}`}>
+    <Modal open onClose={onClose} size="xl" title={product.name} description={`${code('PRD', product.id)} · SKU ${product.sku}${product.barcode ? ` · Barcode ${product.barcode}` : ''}`}>
+      {image.data && <img src={image.data} alt="" className="mb-4 size-28 rounded-xl border border-line object-cover" />}
       <div className="grid gap-6 lg:grid-cols-2">
         <dl className="divide-y divide-line">
           <DetailRow label="Category">{product.category_name}</DetailRow>
+          {can.viewSuppliers && <DetailRow label="Supplier">{product.supplier_name ?? '—'}</DetailRow>}
           <DetailRow label="Current stock">{fmtInt(product.current_stock)} {product.unit} <StockStatusBadge status={product.stock_status} /></DetailRow>
           <DetailRow label="Minimum level">{fmtInt(product.min_stock_level)}</DetailRow>
-          {can.viewFinancials && <DetailRow label="Purchase price">{fmtMoney(product.purchase_price)}</DetailRow>}
+          {can.viewCostPrices && <DetailRow label="Purchase price">{fmtMoney(product.purchase_price)}</DetailRow>}
           <DetailRow label="Selling price">{fmtMoney(product.selling_price)}</DetailRow>
-          {can.viewFinancials && <DetailRow label="Stock value (cost)">{fmtMoney(product.stock_value)}</DetailRow>}
+          {can.viewCostPrices && <DetailRow label="Stock value (cost)">{fmtMoney(product.stock_value)}</DetailRow>}
         </dl>
         <dl className="divide-y divide-line">
           <DetailRow label="Description">{product.description || '—'}</DetailRow>
@@ -364,10 +408,14 @@ function ProductDetailModal({ product, onClose }: { product: ProductRow; onClose
           <DetailRow label="Status">{product.is_archived ? <Badge tone="slate"><PowerOff className="size-3" /> Inactive</Badge> : <Badge tone="green">Active</Badge>}</DetailRow>
         </dl>
       </div>
-      <h3 className="mt-6 mb-2 text-sm font-semibold">Latest stock movements</h3>
-      <div className="rounded-xl border border-line">
-        {history.isLoading ? <LoadingBlock rows={3} /> : <MovementTable rows={history.data?.rows ?? []} compact />}
-      </div>
+      {can.viewMovementHistory && (
+        <>
+          <h3 className="mt-6 mb-2 text-sm font-semibold">Latest stock movements</h3>
+          <div className="rounded-xl border border-line">
+            {history.isLoading ? <LoadingBlock rows={3} /> : <MovementTable rows={history.data?.rows ?? []} compact />}
+          </div>
+        </>
+      )}
     </Modal>
   );
 }

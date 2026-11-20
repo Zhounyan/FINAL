@@ -106,7 +106,7 @@ export function NotificationBell() {
       title: out ? `${a.name} is out of stock` : `${a.name} is running low`,
       detail: out ? `0 ${a.unit} left · minimum ${fmtInt(a.min_stock_level)}` : `${fmtInt(a.current_stock)} ${a.unit} left · minimum ${fmtInt(a.min_stock_level)}`,
       action: can.recordStockIn ? 'Record stock in' : 'View product',
-      to: can.recordStockIn ? `/stock?tab=stock_in&product=${a.id}` : `/products?status=${a.status}`,
+      to: can.recordStockIn ? `/stock/in?product=${a.id}` : `/products?status=${a.status}`,
     });
   }
   if (lastAuto.data?.status === 'failed') {
@@ -224,7 +224,7 @@ export function NotificationBell() {
               type="button"
               onClick={() => {
                 setOpen(false);
-                navigate(can.viewReports ? '/reports?type=low_stock' : '/products?status=low');
+                navigate(can.viewInventory ? '/inventory' : '/products?status=low');
               }}
               className="block w-full border-t border-line px-4 py-2.5 text-center text-xs font-medium text-brand-700 hover:bg-brand-50"
             >

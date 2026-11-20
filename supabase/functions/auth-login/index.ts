@@ -3,14 +3,26 @@
 // Supabase Auth's own per-IP rate limits (config.toml [auth.rate_limit]) apply too.
 import { adminClient, anonClient, EMAIL_RE, HttpError, rawPassword, serve, str } from '../_shared/http.ts';
 
-const GENERIC = 'Invalid email or password.';
+const GENERIC = 'Invalid username/email or password.';
+const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{2,31}$/;
 
 serve(async (_req, body) => {
-  const email = str(body, 'email', { required: true, max: 254 }).toLowerCase();
+  // Cashiers may sign in with their username; everyone may use their e-mail address.
+  const login = (str(body, 'login', { max: 254 }) || str(body, 'email', { required: true, max: 254 })).toLowerCase();
   const password = rawPassword(body, 'password');
-  if (!EMAIL_RE.test(email) || password.length > 200) throw new HttpError(401, GENERIC, 'invalid_credentials');
+  if (password.length > 200) throw new HttpError(401, GENERIC, 'invalid_credentials');
 
   const admin = adminClient();
+  let email = login;
+  if (!login.includes('@')) {
+    if (!USERNAME_RE.test(login)) throw new HttpError(401, GENERIC, 'invalid_credentials');
+    const { data: byName } = await admin.from('profiles').select('email').eq('username', login).maybeSingle();
+    // Unknown usernames still count toward the lockout, keyed by the name typed.
+    email = byName?.email ?? `${login}@unknown.invalid`;
+  } else if (!EMAIL_RE.test(login)) {
+    throw new HttpError(401, GENERIC, 'invalid_credentials');
+  }
+
   const { data: guard, error: guardErr } = await admin.rpc('login_guard', { p_email: email });
   if (guardErr) throw new HttpError(500, 'Sign-in is temporarily unavailable.', 'server_error');
   if (guard?.locked) {

@@ -14,7 +14,11 @@ import { FullPageLoader } from '@/components/ui/Spinner';
 import { AuthShell, FormAlert } from './AuthShell';
 
 const schema = z.object({
-  email: z.string().trim().min(1, 'Email is required').email('Enter a valid email address'),
+  email: z
+    .string()
+    .trim()
+    .min(1, 'Enter your username or email')
+    .refine((v) => (v.includes('@') ? /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v) : /^[A-Za-z0-9][A-Za-z0-9._-]{2,31}$/.test(v)), 'Enter a valid username or email address'),
   password: z.string().min(1, 'Password is required'),
 });
 type Values = z.infer<typeof schema>;
@@ -48,7 +52,7 @@ export default function LoginPage() {
       <form onSubmit={onSubmit} className="space-y-4" noValidate>
         {error && <FormAlert>{error}</FormAlert>}
         {status.isError && <FormAlert>Could not reach the server. Check your connection.</FormAlert>}
-        <Input label="Email address" type="email" autoComplete="username" placeholder="you@billstore.com" error={formState.errors.email?.message} {...register('email')} />
+        <Input label="Username or email" autoComplete="username" autoCapitalize="none" placeholder="e.g. maria or you@billstore.com" error={formState.errors.email?.message} {...register('email')} />
         <PasswordInput label="Password" autoComplete="current-password" placeholder="Enter your password" error={formState.errors.password?.message} {...register('password')} />
         <div className="flex justify-end">
           <Link to="/forgot-password" className="text-sm font-medium text-brand-700 hover:text-brand-900 hover:underline">

@@ -2,23 +2,30 @@ import { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { clsx } from 'clsx';
 import {
+  Activity,
+  ArrowDownToLine,
   ArrowLeftRight,
   BarChart3,
-  Boxes,
   CalendarDays,
+  CalendarRange,
   ChevronDown,
   FileBarChart,
+  FolderTree,
   History,
   LayoutDashboard,
   LogOut,
   Menu,
   Package,
+  PackageMinus,
+  Receipt,
+  ReceiptText,
   Settings,
   ShieldCheck,
-  DatabaseBackup,
+  ShoppingCart,
   Truck,
   UserCircle,
   Users,
+  Warehouse,
   X,
 } from 'lucide-react';
 import { useAuth } from '@/auth/AuthProvider';
@@ -37,34 +44,65 @@ interface NavItem {
   children?: Omit<NavItem, 'children'>[];
 }
 
-const NAV: NavItem[] = [
+/** Administrator navigation (Backup & Restore is reached from Settings). */
+const ADMIN_NAV: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, capability: 'viewDashboard' },
+  { to: '/pos', label: 'Point of Sale', icon: ShoppingCart, capability: 'usePos' },
   { to: '/products', label: 'Products', icon: Package, capability: 'viewProducts' },
-  { to: '/stock', label: 'Stock Management', icon: Boxes, capability: 'viewStockManagement' },
+  { to: '/categories', label: 'Categories', icon: FolderTree, capability: 'manageCategories' },
+  { to: '/inventory', label: 'Inventory', icon: Warehouse, capability: 'viewInventory' },
   {
-    to: '/movements',
-    label: 'Stock Movements',
+    to: '/stock',
+    label: 'Stock Management',
     icon: ArrowLeftRight,
-    capability: 'viewDailyMovements',
+    capability: 'recordStockIn',
     children: [
-      { to: '/movements/daily', label: 'Daily Stock Movements', icon: CalendarDays, capability: 'viewDailyMovements' },
-      { to: '/movements/history', label: 'Stock Movement History', icon: History, capability: 'viewMovementHistory' },
+      { to: '/stock/in', label: 'Stock-In', icon: ArrowDownToLine, capability: 'recordStockIn' },
+      { to: '/stock/out', label: 'Stock-Out', icon: PackageMinus, capability: 'recordStockOut' },
+      { to: '/stock/history', label: 'Stock Movement History', icon: History, capability: 'viewMovementHistory' },
+      { to: '/stock/reports/daily', label: 'Daily Report', icon: CalendarDays, capability: 'viewStockReports' },
+      { to: '/stock/reports/weekly', label: 'Weekly Report', icon: CalendarRange, capability: 'viewStockReports' },
+      { to: '/stock/reports/monthly', label: 'Monthly Report', icon: FileBarChart, capability: 'viewStockReports' },
     ],
   },
-  { to: '/customers', label: 'Customers', icon: Users, capability: 'viewCustomers' },
+  { to: '/sales', label: 'Sales Transactions', icon: Receipt, capability: 'viewAllTransactions' },
+  { to: '/invoices', label: 'Sales Invoices', icon: ReceiptText, capability: 'viewAllTransactions' },
+  {
+    to: '/sales-reports',
+    label: 'Sales Reports',
+    icon: BarChart3,
+    capability: 'viewSalesReports',
+    children: [
+      { to: '/sales-reports/daily', label: 'Daily Sales', icon: CalendarDays, capability: 'viewSalesReports' },
+      { to: '/sales-reports/weekly', label: 'Weekly Sales', icon: CalendarRange, capability: 'viewSalesReports' },
+      { to: '/sales-reports/monthly', label: 'Monthly Sales', icon: FileBarChart, capability: 'viewSalesReports' },
+    ],
+  },
   { to: '/suppliers', label: 'Suppliers', icon: Truck, capability: 'viewSuppliers' },
-  { to: '/reports', label: 'Reports', icon: FileBarChart, capability: 'viewReports' },
+  { to: '/customers', label: 'Customers', icon: Users, capability: 'viewCustomers' },
   { to: '/users', label: 'User Management', icon: ShieldCheck, capability: 'manageUsers' },
-  { to: '/backups', label: 'Backup & Restore', icon: DatabaseBackup, capability: 'manageBackups' },
-  { to: '/settings', label: 'Settings', icon: Settings, capability: 'viewDashboard' },
-  { to: '/profile', label: 'Profile', icon: UserCircle, capability: 'viewDashboard' },
+  { to: '/activity', label: 'Activity Logs', icon: Activity, capability: 'viewActivity' },
+  { to: '/settings', label: 'Settings', icon: Settings, capability: 'manageSettings' },
+];
+
+/** Cashier navigation: the Point of Sale comes first and is the most prominent item. */
+const CASHIER_NAV: NavItem[] = [
+  { to: '/pos', label: 'Point of Sale', icon: ShoppingCart, capability: 'usePos' },
+  { to: '/', label: 'Dashboard', icon: LayoutDashboard, capability: 'viewDashboard' },
+  { to: '/products', label: 'Products', icon: Package, capability: 'viewProducts' },
+  { to: '/my-invoices', label: 'My Invoices', icon: ReceiptText, capability: 'viewInvoices' },
+  { to: '/my-transactions', label: 'My Transaction History', icon: Receipt, capability: 'viewTransactions' },
+  { to: '/profile', label: 'My Profile', icon: UserCircle, capability: 'viewDashboard' },
 ];
 
 function Sidebar({ onNavigate, onLogout }: { onNavigate?: () => void; onLogout: () => void }) {
   const { can } = useAuth();
   const { data: settings } = useSettings();
   const location = useLocation();
-  const [openGroup, setOpenGroup] = useState(location.pathname.startsWith('/movements'));
+  const nav = can.isAdmin ? ADMIN_NAV : CASHIER_NAV;
+  const [open, setOpen] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(nav.filter((n) => n.children).map((n) => [n.to, location.pathname.startsWith(n.to)])),
+  );
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     clsx(
@@ -82,13 +120,13 @@ function Sidebar({ onNavigate, onLogout }: { onNavigate?: () => void; onLogout: 
         </div>
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2" aria-label="Main navigation">
-        {NAV.filter((n) => can[n.capability]).map((item) =>
+        {nav.filter((n) => can[n.capability]).map((item) =>
           item.children ? (
             <div key={item.to}>
               <button
                 type="button"
-                onClick={() => setOpenGroup((o) => !o)}
-                aria-expanded={openGroup}
+                onClick={() => setOpen((o) => ({ ...o, [item.to]: !o[item.to] }))}
+                aria-expanded={Boolean(open[item.to])}
                 className={clsx(
                   'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
                   location.pathname.startsWith(item.to) ? 'text-white' : 'text-brand-100/80 hover:bg-white/6 hover:text-white',
@@ -96,9 +134,9 @@ function Sidebar({ onNavigate, onLogout }: { onNavigate?: () => void; onLogout: 
               >
                 <item.icon className="size-[18px] shrink-0" />
                 <span className="flex-1 text-left">{item.label}</span>
-                <ChevronDown className={clsx('size-4 transition-transform', openGroup && 'rotate-180')} />
+                <ChevronDown className={clsx('size-4 transition-transform', open[item.to] && 'rotate-180')} />
               </button>
-              {openGroup && (
+              {open[item.to] && (
                 <div className="mt-1 ml-5 space-y-1 border-l border-white/10 pl-3">
                   {item.children
                     .filter((c) => can[c.capability])
@@ -112,7 +150,13 @@ function Sidebar({ onNavigate, onLogout }: { onNavigate?: () => void; onLogout: 
               )}
             </div>
           ) : (
-            <NavLink key={item.to} to={item.to} end={item.to === '/'} className={linkClass} onClick={onNavigate}>
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.to === '/'}
+              className={(s) => clsx(linkClass(s), item.to === '/pos' && can.isCashier && 'bg-white/15 py-3.5 text-base font-bold text-white ring-1 ring-white/25')}
+              onClick={onNavigate}
+            >
               <item.icon className="size-[18px] shrink-0" />
               {item.label}
             </NavLink>
@@ -125,9 +169,9 @@ function Sidebar({ onNavigate, onLogout }: { onNavigate?: () => void; onLogout: 
       </nav>
       <div className="m-3 rounded-xl bg-white/6 p-3 text-xs text-brand-100/70">
         <div className="flex items-center gap-2 font-medium text-brand-50">
-          <BarChart3 className="size-4" /> Business Intelligence
+          <BarChart3 className="size-4" /> {can.isAdmin ? 'Administrator' : 'Cashier'}
         </div>
-        <p className="mt-1">Single-branch inventory for {settings?.store_name ?? 'Bill Store'}.</p>
+        <p className="mt-1">POS, inventory &amp; reports for {settings?.store_name ?? 'Bill Store'}.</p>
       </div>
     </div>
   );

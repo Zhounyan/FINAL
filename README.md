@@ -2,9 +2,9 @@
 
 # INVPORTIQ
 
-**An Inventory Management and Business Intelligence System for Bill Store** (single branch).
+**A POS-centred Inventory Management and Business Reporting System for Bill Store** (single branch).
 
-INVPORTIQ manages products, categories, customers, suppliers, stock movements, sales, users and reports. It shows exactly how many units came into Bill Store, how many were sold or released, and how much remains for any day, week, month or year. You can view this for all inventory, for one category, or for one product.
+Cashiers sell from a fast, simple Point of Sale: search by name, SKU or barcode (USB scanners work), adjust the cart, take cash or e-wallet payments with automatic change, and print or export the invoice. The Administrator controls products, inventory, Stock-In, Stock-Out, the stock movement history, sales transactions and invoices, cashier accounts, settings and backups, and reads exactly six reports: daily, weekly and monthly **Sales** reports and daily, weekly and monthly **Stock Management** reports.
 
 ---
 
@@ -58,25 +58,24 @@ Migrations: `supabase/migrations/*.sql`.
 
 ## Roles & permissions
 
-Each role is enforced three times: in the database (RLS and RPC role checks), in the Edge Functions, and in the UI.
+There are exactly two roles: one **Administrator** and any number of **Cashiers**. Each rule is enforced in the database (RLS and RPC role checks), in the Edge Functions and in the UI.
 
-| Capability | Owner | Admin | Staff |
-|---|:-:|:-:|:-:|
-| Dashboard & analytics | ✅ | ✅ | ✅ |
-| View products / stock levels | ✅ | ✅ | ✅ |
-| Add products | – | ✅ | if authorised by Admin |
-| Edit / delete products, manage categories | – | ✅ | – |
-| Stock In, Record Sale, Damaged/Lost/Other Stock Out | – | ✅ | ✅ |
-| Stock adjustments, reverse erroneous movements | – | ✅ | – |
-| Daily Stock Movements | ✅ | ✅ | ✅ |
-| Stock Movement History (daily/weekly/monthly/yearly) | ✅ | ✅ | – |
-| Customers & suppliers | view | manage | – (pickers only) |
-| Reports, PDF/Excel export, print | ✅ | ✅ | – |
-| User management, store settings | – | ✅ | – |
-| Activity log | ✅ | ✅ | own entries |
-| Change own password / profile | ✅ | ✅ | ✅ |
+| Capability | Administrator | Cashier |
+|---|:-:|:-:|
+| Point of Sale (search, barcode scan, cart, payment, change, invoice) | ✅ | ✅ |
+| Dashboard | business overview | own sales today |
+| Products | manage (add / edit / archive, barcode, image, supplier) | view prices and availability |
+| Categories, inventory, Stock-In, Stock-Out, adjustments, reversals | ✅ | – |
+| Stock movement history | ✅ | – |
+| Sales transactions & invoices (view / print / PDF / Word) | all | own only |
+| Void a transaction (stock is returned through the ledger) | ✅ | – |
+| Sales reports and Stock Management reports (daily / weekly / monthly) | ✅ | – |
+| Suppliers, customers | ✅ | – |
+| Cashier accounts (add, edit, deactivate, reset password, delete/recover) | ✅ | – |
+| Activity logs, settings, Backup & Restore | ✅ | own activity only |
+| Own profile and password | ✅ | ✅ |
 
-The Owner has strictly read-only access. There is no public registration. The Admin creates every Owner and Staff account.
+Cashiers sign in with a **username** (an e-mail address is optional). Owner accounts from earlier versions are kept for history but deactivated.
 
 ## Inventory model (how the numbers are calculated)
 
@@ -84,10 +83,10 @@ The Owner has strictly read-only access. There is no public registration. The Ad
 Ending Stock = Beginning Stock + Stock In − Stock Sold − Other Stock Out ± Adjustments
 ```
 
-* **Movement types:** `stock_in`, `sale`, `damaged`, `lost`, `other_out`, `adjustment`, `reclassify` (category transfer).
+* **Movement types:** `stock_in` (IN-), `sale` (SAL-, sales deduction), `sale_void` (VOID-, stock returned by a voided sale), stock-out reasons `damaged`, `expired`, `lost`, `internal_use`, `other_out` (OUT-), `adjustment` (ADJ-) and `reclassify` (category transfer). Every movement gets a unique reference number.
 * **Balances come from the ledger.** The balance at any moment is the sum of all movements before it. That makes day N's ending stock equal to day N+1's beginning stock by construction.
 * **Day boundaries use the store time zone** (`system_settings.timezone`, default `Asia/Manila`).
-* **Sales are atomic.** A sale, its line items and its one `sale` movement per product are written in a single transaction:
+* **Sales are atomic.** A sale (transaction number `TXN-…`, invoice number `INV-…`, payment method, discount, amount received, change), its line items and its one `sale` movement per product are written in a single transaction:
   * product rows are locked in id order, so concurrent sales cannot oversell;
   * if any line is short of stock, nothing is written;
   * a client idempotency key means a retried or double-clicked sale is recorded only once.
@@ -182,26 +181,23 @@ Open http://localhost:5173. On a fresh database you are redirected to **Initial 
 |---|---|
 | `npm run lint` | ESLint (TypeScript and React Hooks rules) |
 | `npm run typecheck` | Frontend, tooling and Edge Function TypeScript |
-| `npm test` | Vitest + React Testing Library: password policy and strength meter, period maths, the dependent category→product filter, summary cards, search sanitising, permission matrix |
-| `npm run test:db` | Applies the real migrations to a scratch PostgreSQL database, then runs **181 assertions**. It also runs a concurrency test: 20 simultaneous sales compete for 10 units |
+| `npm test` | Vitest + React Testing Library: password policy and strength meter, period maths, search sanitising, two-role permission matrix, POS cash buttons, invoice content, HTML escaping and the Word (.docx) export |
+| `npm run test:db` | Applies the real migrations to a scratch PostgreSQL database, then runs **244 assertions**. It also runs a concurrency test: 20 simultaneous sales compete for 10 units |
 | `npm run test:e2e` | Playwright: a full browser journey against the production build |
 
 `npm run test:db` calls the RPCs as the `anon`, `authenticated` and `service_role` roles with JWT claims, the same way PostgREST does. Its assertions cover RBAC/RLS, one-time setup, ledger invariants, immutability, atomic sales, the daily/weekly/monthly/yearly/category/product report maths (including the specification's 500 → 615 example), time-zone boundaries, safeguarded deletes, lockout and deactivation.
 
-`npm run test:e2e` covers 21 scenarios, including:
-* setup and the live password meter;
-* master data and newest-first sorting;
-* stock in, sale, damaged stock out and adjustment;
-* daily movement cards and the history filters;
-* PDF and Excel export;
-* user creation, the forced password change, Owner and Staff restrictions;
-* brute-force lockout;
-* the mobile layout;
-* backup and restore: a scheduled run with no browser session, and duplicate-trigger protection;
-* manual backup, then download and independent checksum verification, then restore;
-* rejection of a tampered upload, and acceptance of a genuine one;
-* deletion and the schedule settings;
-* Owner and Staff are denied access.
+`npm run test:e2e` covers 23 scenarios, including:
+* setup and the live password meter; categories, suppliers, customers;
+* products with barcode, supplier, image and opening stock; duplicate SKU and barcode refused;
+* two cashier accounts (one username-only), forced password change, cashier-only navigation and blocked admin pages;
+* Stock-In and Stock-Out with IN-/OUT- reference numbers, negative stock prevented, inventory totals, movement history and a single reversal;
+* POS: partial-name, SKU and barcode-scanner search, cart corrections, stock limits, insufficient cash blocked, change, GCash, double-click protection;
+* invoices: on-screen, print, PDF and editable Word with the real transaction data;
+* cashier isolation, admin void (stock returned, invoice marked VOID);
+* the six reports (figures, breakdowns, filters, PDF / Word / print) and the dashboards;
+* activity logs, brute-force lockout, the phone layout of every page, notifications, account delete/recover;
+* backup and restore (scheduler, manual, download, checksum verification, tamper rejection, restore).
 
 The database and e2e tests need a local PostgreSQL 15+ server. Set `PGHOST`, `PGPORT` and `PGUSER` (defaults: `/tmp`, `54329`, `postgres`).
 
@@ -234,12 +230,13 @@ src/
   auth/            AuthProvider (session, profile, capabilities), route guards
   components/      UI kit, layout, password meter, stock movement views/filters, export buttons
   hooks/           data hooks, realtime invalidation, pagination
-  lib/             api (all Supabase calls), types, periods, export (PDF/Excel), permissions, format
-  pages/           Dashboard, Products, Stock, Daily Movements, History, Customers, Suppliers,
-                   Reports, Users, Settings, Profile, auth/*
+  lib/             api (all Supabase calls), types, periods, documents (print / PDF / Word), invoice, export (PDF/Excel lists), permissions, format
+  pages/           POS, Dashboard (admin / cashier), Products & Categories, Inventory, Stock-In / Stock-Out,
+                   Stock Movement History, Sales Transactions & Invoices, Sales Reports, Stock Reports,
+                   Customers, Suppliers, Users, Activity Logs, Settings, Backup & Restore, Profile, auth/*
 supabase/
   migrations/      schema, triggers, business RPCs, reporting RPCs, RLS & grants
-  functions/       initial-setup, auth-login, admin-users, change-password, backup-admin, backup-scheduler, _shared/
+  functions/       initial-setup, auth-login (username or e-mail), admin-users (cashier accounts), change-password, backup-admin, backup-scheduler, _shared/
   tests/           database.test.sql, concurrency.test.sh, supabase_stub.sql (test-only)
 e2e/               Playwright specs + test-only Supabase emulator
 ```

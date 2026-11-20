@@ -97,24 +97,22 @@ describe('search sanitising (PostgREST filter injection)', () => {
 });
 
 describe('role permissions (UI layer mirrors database RBAC)', () => {
-  it('owner is read-only', () => {
-    const c = capabilities({ role: 'owner', can_add_products: false });
-    expect(c.viewReports && c.viewMovementHistory && c.viewCustomers && c.viewSuppliers).toBe(true);
-    expect(c.addProducts || c.editProducts || c.recordStockIn || c.recordSale || c.manageUsers || c.manageCustomers).toBe(false);
+  it('cashier uses the POS and sees only cashier pages', () => {
+    const c = capabilities({ role: 'cashier' });
+    expect(c.usePos && c.viewProducts && c.viewInvoices && c.viewTransactions && c.viewDashboard).toBe(true);
+    expect(
+      c.addProducts || c.editProducts || c.deleteProducts || c.recordStockIn || c.recordStockOut || c.recordAdjustment || c.manageUsers,
+    ).toBe(false);
+    expect(c.viewSalesReports || c.viewStockReports || c.viewAllTransactions || c.voidTransactions || c.manageSettings || c.viewActivity).toBe(false);
     expect(c.manageBackups).toBe(false);
   });
-  it('staff performs stock operations and adds products only when authorised', () => {
-    expect(capabilities({ role: 'staff', can_add_products: false }).addProducts).toBe(false);
-    const c = capabilities({ role: 'staff', can_add_products: true });
-    expect(c.addProducts && c.recordStockIn && c.recordSale && c.recordStockOut).toBe(true);
-    expect(c.recordAdjustment || c.editProducts || c.manageUsers || c.manageSettings || c.viewReports).toBe(false);
-    expect(c.manageBackups).toBe(false);
+  it('administrator manages everything', () => {
+    const c = capabilities({ role: 'admin' });
+    expect(Object.entries(c).filter(([k, v]) => k !== 'role' && k !== 'isCashier' && v === false)).toEqual([]);
   });
-  it('admin manages everything', () => {
-    const c = capabilities({ role: 'admin', can_add_products: false });
-    expect(Object.entries(c).filter(([k, v]) => k !== 'role' && k !== 'isOwner' && k !== 'isStaff' && v === false)).toEqual([]);
-  });
-  it('signed-out users have no capabilities', () => {
+  it('retired owner accounts and signed-out users have no capabilities', () => {
+    expect(capabilities({ role: 'owner' }).viewDashboard).toBe(false);
+    expect(capabilities({ role: 'owner' }).usePos).toBe(false);
     expect(capabilities(null).viewDashboard).toBe(false);
   });
 });

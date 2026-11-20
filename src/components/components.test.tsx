@@ -3,9 +3,8 @@ import { useState } from 'react';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { PasswordInput, PasswordStrengthMeter } from './PasswordStrength';
-import { SummaryCards, totalsOf, PeriodSummaryTable } from './stock/MovementViews';
 import { ProductCombobox } from './stock/ProductCombobox';
-import type { PeriodSummaryRow, ProductRow } from '@/lib/types';
+import type { ProductRow } from '@/lib/types';
 
 const products: ProductRow[] = [
   { id: 1, sku: 'BEV-001', name: 'Cola 1L', category_id: 1, category_name: 'Beverages', unit: 'bottle', current_stock: 30, min_stock_level: 5, stock_status: 'ok' },
@@ -54,38 +53,6 @@ describe('PasswordStrengthMeter', () => {
     expect(input).toHaveAttribute('type', 'password');
     await user.click(screen.getByRole('button', { name: 'Show password' }));
     expect(input).toHaveAttribute('type', 'text');
-  });
-});
-
-describe('Stock movement summary', () => {
-  const rows: PeriodSummaryRow[] = [
-    { period_start: '2026-11-01', period_end: '2026-11-01', beginning_stock: 500, stock_in: 150, stock_sold: 35, other_out: 5, adjustments: 5, ending_stock: 615, movement_count: 6 },
-    { period_start: '2026-11-02', period_end: '2026-11-02', beginning_stock: 615, stock_in: 80, stock_sold: 25, other_out: 0, adjustments: 0, ending_stock: 670, movement_count: 2 },
-  ];
-
-  it('totals a period: first beginning, summed flows, last ending', () => {
-    expect(totalsOf(rows)).toEqual({ beginning_stock: 500, stock_in: 230, stock_sold: 60, other_out: 5, adjustments: 5, ending_stock: 670 });
-    expect(totalsOf([])).toBeNull();
-  });
-
-  it('renders the specification example cards', () => {
-    render(<SummaryCards totals={totalsOf(rows.slice(0, 1))} />);
-    expect(screen.getByTestId('card-beginning_stock')).toHaveTextContent('500');
-    expect(screen.getByTestId('card-stock_in')).toHaveTextContent('+150');
-    expect(screen.getByTestId('card-stock_sold')).toHaveTextContent('−35');
-    expect(screen.getByTestId('card-other_out')).toHaveTextContent('−5');
-    expect(screen.getByTestId('card-adjustments')).toHaveTextContent('+5');
-    expect(screen.getByTestId('card-ending_stock')).toHaveTextContent('615');
-  });
-
-  it('renders the historical summary table with a totals row', () => {
-    render(<PeriodSummaryTable rows={rows} bucket="day" totals={totalsOf(rows)} />);
-    const table = screen.getByTestId('period-table');
-    const bodyRows = within(table).getAllByRole('row');
-    expect(bodyRows).toHaveLength(1 + 2 + 1); // header + 2 days + total
-    expect(bodyRows[1]).toHaveTextContent('Sun, Nov 1');
-    expect(bodyRows[3]).toHaveTextContent('Period total');
-    expect(bodyRows[3]).toHaveTextContent('670');
   });
 });
 

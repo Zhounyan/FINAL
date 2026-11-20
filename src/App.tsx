@@ -14,14 +14,20 @@ const SetupPage = lazy(() => import('./pages/auth/SetupPage'));
 const ForgotPasswordPage = lazy(() => import('./pages/auth/ForgotPasswordPage'));
 const ResetPasswordPage = lazy(() => import('./pages/auth/ResetPasswordPage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const POSPage = lazy(() => import('./pages/POSPage'));
 const ProductsPage = lazy(() => import('./pages/ProductsPage'));
-const StockPage = lazy(() => import('./pages/StockPage'));
-const DailyMovementsPage = lazy(() => import('./pages/DailyMovementsPage'));
-const MovementHistoryPage = lazy(() => import('./pages/MovementHistoryPage'));
+const CategoriesPage = lazy(() => import('./pages/ProductsPage').then((m) => ({ default: m.CategoriesPage })));
+const InventoryPage = lazy(() => import('./pages/StockOpsPage').then((m) => ({ default: m.InventoryPage })));
+const StockInPage = lazy(() => import('./pages/StockOpsPage').then((m) => ({ default: m.StockInPage })));
+const StockOutPage = lazy(() => import('./pages/StockOpsPage').then((m) => ({ default: m.StockOutPage })));
+const StockMovementHistoryPage = lazy(() => import('./pages/StockMovementHistoryPage'));
+const StockReportPage = lazy(() => import('./pages/StockReportPage'));
+const SalesReportPage = lazy(() => import('./pages/SalesReportPage'));
+const SalesListPage = lazy(() => import('./pages/SalesListPage'));
 const CustomersPage = lazy(() => import('./pages/CustomersPage'));
 const SuppliersPage = lazy(() => import('./pages/SuppliersPage'));
-const ReportsPage = lazy(() => import('./pages/ReportsPage'));
 const UsersPage = lazy(() => import('./pages/UsersPage'));
+const ActivityLogsPage = lazy(() => import('./pages/ActivityLogsPage'));
 const BackupsPage = lazy(() => import('./pages/BackupsPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
@@ -70,17 +76,31 @@ export default function App() {
           }
         >
           <Route index element={<Guard capability="viewDashboard"><DashboardPage /></Guard>} />
+          <Route path="pos" element={<Guard capability="usePos"><POSPage /></Guard>} />
           <Route path="products" element={<Guard capability="viewProducts"><ProductsPage /></Guard>} />
-          <Route path="stock" element={<Guard capability="viewStockManagement"><StockPage /></Guard>} />
-          <Route path="movements" element={<Navigate to="/movements/daily" replace />} />
-          <Route path="movements/daily" element={<Guard capability="viewDailyMovements"><DailyMovementsPage /></Guard>} />
-          <Route path="movements/history" element={<Guard capability="viewMovementHistory"><MovementHistoryPage /></Guard>} />
+          <Route path="categories" element={<Guard capability="manageCategories"><CategoriesPage /></Guard>} />
+          <Route path="inventory" element={<Guard capability="viewInventory"><InventoryPage /></Guard>} />
+          <Route path="stock" element={<Navigate to="/stock/in" replace />} />
+          <Route path="stock/in" element={<Guard capability="recordStockIn"><StockInPage /></Guard>} />
+          <Route path="stock/out" element={<Guard capability="recordStockOut"><StockOutPage /></Guard>} />
+          <Route path="stock/history" element={<Guard capability="viewMovementHistory"><StockMovementHistoryPage /></Guard>} />
+          <Route path="stock/reports/daily" element={<Guard capability="viewStockReports"><StockReportPage period="daily" /></Guard>} />
+          <Route path="stock/reports/weekly" element={<Guard capability="viewStockReports"><StockReportPage period="weekly" /></Guard>} />
+          <Route path="stock/reports/monthly" element={<Guard capability="viewStockReports"><StockReportPage period="monthly" /></Guard>} />
+          <Route path="sales" element={<Guard capability="viewAllTransactions"><SalesListPage mode="transactions" /></Guard>} />
+          <Route path="invoices" element={<Guard capability="viewAllTransactions"><SalesListPage mode="invoices" /></Guard>} />
+          <Route path="my-transactions" element={<Guard capability="viewTransactions"><SalesListPage mode="transactions" /></Guard>} />
+          <Route path="my-invoices" element={<Guard capability="viewInvoices"><SalesListPage mode="invoices" /></Guard>} />
+          <Route path="sales-reports" element={<Navigate to="/sales-reports/daily" replace />} />
+          <Route path="sales-reports/daily" element={<Guard capability="viewSalesReports"><SalesReportPage period="daily" /></Guard>} />
+          <Route path="sales-reports/weekly" element={<Guard capability="viewSalesReports"><SalesReportPage period="weekly" /></Guard>} />
+          <Route path="sales-reports/monthly" element={<Guard capability="viewSalesReports"><SalesReportPage period="monthly" /></Guard>} />
           <Route path="customers" element={<Guard capability="viewCustomers"><CustomersPage /></Guard>} />
           <Route path="suppliers" element={<Guard capability="viewSuppliers"><SuppliersPage /></Guard>} />
-          <Route path="reports" element={<Guard capability="viewReports"><ReportsPage /></Guard>} />
           <Route path="users" element={<Guard capability="manageUsers"><UsersPage /></Guard>} />
+          <Route path="activity" element={<Guard capability="viewActivity"><ActivityLogsPage /></Guard>} />
           <Route path="backups" element={<Guard capability="manageBackups"><BackupsPage /></Guard>} />
-          <Route path="settings" element={<Guard capability="viewDashboard"><SettingsPage /></Guard>} />
+          <Route path="settings" element={<Guard capability="manageSettings"><SettingsPage /></Guard>} />
           <Route path="profile" element={<Guard capability="viewDashboard"><ProfilePage /></Guard>} />
           <Route path="*" element={<Suspense fallback={null}><NotFoundPage /></Suspense>} />
         </Route>

@@ -97,8 +97,9 @@ export default function ProfilePage() {
         <Card title="Account information" bodyClassName="p-5 space-y-5">
           <ProfilePhoto />
           <dl className="divide-y divide-line">
-            <DetailRow label="Email">{profile.email}</DetailRow>
-            <DetailRow label="Role">{ROLE_LABELS[profile.role]}{profile.role === 'staff' && profile.can_add_products ? ' · can add products' : ''}</DetailRow>
+            {profile.username && <DetailRow label="Username">{profile.username}</DetailRow>}
+            <DetailRow label="Email">{profile.email.endsWith('@cashier.invportiq.invalid') ? 'No e-mail (sign in with your username)' : profile.email}</DetailRow>
+            <DetailRow label="Role">{ROLE_LABELS[profile.role]}</DetailRow>
             <DetailRow label="Last sign-in">{fmtDateTime(profile.last_login_at)}</DetailRow>
             <DetailRow label="Member since">{fmtDateTime(profile.created_at)}</DetailRow>
           </dl>

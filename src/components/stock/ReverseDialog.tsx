@@ -17,7 +17,7 @@ export function ReverseDialog({ movement, onClose }: { movement: StockMovement |
   const m = useMutation({
     mutationFn: () => reverseMovement(movement!.id, reason),
     onSuccess: async () => {
-      toast.success(`Movement #${movement!.id} reversed.`);
+      toast.success(`${movement!.movement_no} reversed.`);
       setReason('');
       onClose();
       await invalidate();
@@ -27,7 +27,7 @@ export function ReverseDialog({ movement, onClose }: { movement: StockMovement |
   return (
     <ConfirmDialog
       open={Boolean(movement)}
-      title={`Reverse movement #${movement?.id ?? ''}?`}
+      title={`Reverse ${movement?.movement_no ?? 'movement'}?`}
       message={
         movement && (
           <>

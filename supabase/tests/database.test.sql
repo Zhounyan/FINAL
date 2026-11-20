@@ -65,7 +65,8 @@ insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'admin@billstore.test'),
   ('00000000-0000-0000-0000-00000000000b', 'owner@billstore.test'),
   ('00000000-0000-0000-0000-00000000000c', 'staff@billstore.test'),
-  ('00000000-0000-0000-0000-00000000000d', 'intruder@billstore.test');
+  ('00000000-0000-0000-0000-00000000000d', 'intruder@billstore.test'),
+  ('00000000-0000-0000-0000-00000000000e', 'cara@billstore.test');
 
 -- ===========================================================================
 -- 1. Anonymous access & one-time initial setup
@@ -98,9 +99,16 @@ select tests.eq((select count(*)::int from public.profiles where id = '00000000-
 
 -- Accounts created by the admin edge function (service role)
 set role service_role;
-insert into public.profiles (id, email, full_name, role, created_by) values
-  ('00000000-0000-0000-0000-00000000000b', 'owner@billstore.test', 'Bill Owner', 'owner', '00000000-0000-0000-0000-00000000000a'),
-  ('00000000-0000-0000-0000-00000000000c', 'staff@billstore.test', 'Sam Staff', 'staff', '00000000-0000-0000-0000-00000000000a');
+-- b: a retired Owner (owners can only exist as inactive accounts); c and e: two cashiers
+select tests.throws($$insert into public.profiles (id, email, full_name, role) values ('00000000-0000-0000-0000-00000000000b', 'owner@billstore.test', 'Bill Owner', 'owner')$$,
+  'profiles_owner_retired_chk', 'an active Owner account can no longer be created');
+insert into public.profiles (id, email, full_name, role, is_active, created_by) values
+  ('00000000-0000-0000-0000-00000000000b', 'owner@billstore.test', 'Bill Owner', 'owner', false, '00000000-0000-0000-0000-00000000000a');
+insert into public.profiles (id, email, full_name, role, username, created_by) values
+  ('00000000-0000-0000-0000-00000000000c', 'staff@billstore.test', 'Sam Staff', 'cashier', 'sam', '00000000-0000-0000-0000-00000000000a'),
+  ('00000000-0000-0000-0000-00000000000e', 'cara@billstore.test', 'Cara Cashier', 'cashier', 'cara', '00000000-0000-0000-0000-00000000000a');
+select tests.throws($$insert into public.profiles (id, email, full_name, role, username) values ('00000000-0000-0000-0000-00000000000d', 'd@x.io', 'Dup', 'cashier', 'sam')$$,
+  'duplicate', 'cashier usernames are unique (case-insensitive)');
 reset role;
 
 -- ===========================================================================
@@ -121,22 +129,22 @@ select tests.eq((select full_name from public.customers order by created_at desc
 
 -- staff and owner cannot write master data
 select tests.as_user('00000000-0000-0000-0000-00000000000c');
-select tests.throws($$insert into public.customers (full_name) values ('Staff Made')$$, 'row-level security', 'staff cannot add customers');
-select tests.throws($$insert into public.categories (name) values ('Snacks')$$, 'row-level security', 'staff cannot add categories');
+select tests.throws($$insert into public.customers (full_name) values ('Staff Made')$$, 'row-level security', 'cashier cannot add customers');
+select tests.throws($$insert into public.categories (name) values ('Snacks')$$, 'row-level security', 'cashier cannot add categories');
 select tests.as_user('00000000-0000-0000-0000-00000000000b');
-select tests.throws($$insert into public.suppliers (name) values ('Owner Co')$$, 'row-level security', 'owner cannot add suppliers');
+select tests.throws($$insert into public.suppliers (name) values ('Owner Co')$$, 'row-level security', 'retired owner cannot add suppliers');
 update public.customers set full_name = 'Hacked' where full_name = 'Juan Dela Cruz';
-select tests.eq((select count(*)::int from public.customers where full_name = 'Hacked'), 0, 'owner update silently affects 0 rows');
-select tests.throws($$delete from public.customers$$, 'permission denied', 'owner cannot delete customers');
-select tests.eq((select count(*)::int from public.profiles), 1, 'owner sees only own profile');
+select tests.eq((select count(*)::int from public.customers where full_name = 'Hacked'), 0, 'retired owner update silently affects 0 rows');
+select tests.throws($$delete from public.customers$$, 'permission denied', 'retired owner cannot delete customers');
+select tests.eq((select count(*)::int from public.products), 0, 'retired owner sees no store data');
 select tests.as_user('00000000-0000-0000-0000-00000000000a');
-select tests.eq((select count(*)::int from public.profiles), 3, 'admin sees all profiles');
+select tests.eq((select count(*)::int from public.profiles), 4, 'admin sees all profiles');
 select tests.throws($$update public.profiles set role = 'admin' where id = '00000000-0000-0000-0000-00000000000c'$$,
   'permission denied', 'profiles cannot be modified directly (role escalation blocked)');
 select tests.as_user('00000000-0000-0000-0000-00000000000c');
-select tests.throws($$update public.profiles set role = 'admin' where id = auth.uid()$$, 'permission denied', 'staff cannot self-promote');
+select tests.throws($$update public.profiles set role = 'admin' where id = auth.uid()$$, 'permission denied', 'cashier cannot self-promote');
 select (public.update_my_profile('Samuel Staff', '0917')).full_name;
-select tests.eq((select full_name from public.profiles where id = auth.uid()), 'Samuel Staff', 'staff can update own name');
+select tests.eq((select full_name from public.profiles where id = auth.uid()), 'Samuel Staff', 'cashier can update own name');
 
 -- ===========================================================================
 -- 3. Products
@@ -154,18 +162,18 @@ select tests.eq((select name from public.products order by created_at desc, id d
 select tests.throws($$select public.create_product('bev-001 ', 'Dup', 1)$$, 'already exists', 'SKU unique (case-insensitive)');
 select tests.throws($$select public.create_product('NEG', 'Neg', 1, 'pc', 0, 0, 0, null, -1)$$, 'cannot be negative', 'negative opening stock rejected');
 
--- staff product permission flag
+-- products are managed by the Administrator only
+select public.create_product('HH-001', 'Dish Soap', (select id from public.categories where name = 'Household Products'), 'bottle', 30, 45, 5,
+  p_barcode := '4800000000017');
+select tests.eq((select current_stock from public.products where sku = 'HH-001'), 0, 'product without opening stock starts at zero');
+select tests.throws($$select public.create_product('HH-002', 'Copy', 1, p_barcode := '4800000000017')$$, 'barcode', 'barcodes are unique');
+select tests.throws($$select public.create_product('HH-003', 'Bad', 1, p_barcode := 'has space')$$, 'products_barcode_chk', 'barcode format validated');
 select tests.as_user('00000000-0000-0000-0000-00000000000c');
-select tests.throws($$select public.create_product('X-1', 'X', 1)$$, 'not authorised to add products', 'staff without flag cannot add products');
-reset role;
-update public.profiles set can_add_products = true where id = '00000000-0000-0000-0000-00000000000c';
-set role authenticated;
-select tests.as_user('00000000-0000-0000-0000-00000000000c');
-select public.create_product('HH-001', 'Dish Soap', (select id from public.categories where name = 'Household Products'), 'bottle', 30, 45, 5);
-select tests.eq((select current_stock from public.products where sku = 'HH-001'), 0, 'authorised staff added product (zero stock)');
-select tests.throws($$select public.update_product(1, 'BEV-001', 'Renamed', 1, 'pc', 1, 1, 1)$$, 'permission', 'staff cannot edit products');
+select tests.throws($$select public.create_product('X-1', 'X', 1)$$, 'permission', 'cashier cannot add products');
+select tests.throws($$select public.update_product(1, 'BEV-001', 'Renamed', 1, 'pc', 1, 1, 1)$$, 'permission', 'cashier cannot edit products');
+select tests.throws($$select public.delete_product(1)$$, 'permission', 'cashier cannot delete products');
 select tests.as_user('00000000-0000-0000-0000-00000000000b');
-select tests.throws($$select public.create_product('O-1', 'Owner', 1)$$, 'permission', 'owner cannot add products');
+select tests.throws($$select public.create_product('O-1', 'Owner', 1)$$, 'not active', 'retired owner cannot add products');
 
 -- direct stock tampering is impossible
 select tests.as_user('00000000-0000-0000-0000-00000000000a');
@@ -188,11 +196,12 @@ select tests.set_time((select array_agg(id) from public.stock_movements), '2026-
 
 select public.record_stock_in((select id from public.products where sku = 'BEV-001'), 100,
   (select id from public.suppliers where name = 'Metro Distributors'), 'DR-1001', 'Weekly delivery', 40);
-select tests.as_user('00000000-0000-0000-0000-00000000000c');   -- staff may receive stock
 select public.record_stock_in((select id from public.products where sku = 'FOOD-001'), 50, null, 'DR-1002', null);
 select tests.throws($$select public.record_stock_in(1, 0)$$, 'greater than zero', 'zero quantity rejected');
-select tests.as_user('00000000-0000-0000-0000-00000000000b');
-select tests.throws($$select public.record_stock_in(1, 5)$$, 'permission', 'owner cannot record stock in');
+select tests.ok((select movement_no from public.stock_movements where reference_no = 'DR-1002') ~ '^IN-[0-9]{6}$', 'stock-in gets a unique IN- reference number');
+select tests.as_user('00000000-0000-0000-0000-00000000000c');
+select tests.throws($$select public.record_stock_in(1, 5)$$, 'permission', 'cashier cannot record stock in');
+select tests.throws($$select public.record_stock_out(1, 5, 'damaged', null, null, 'x')$$, 'permission', 'cashier cannot record stock out');
 
 -- sale: two products, duplicate line for BEV-001 merged (12 + 8 = 20)
 select tests.as_user('00000000-0000-0000-0000-00000000000c');
@@ -201,35 +210,47 @@ select (public.record_sale(
     jsonb_build_object('product_id', (select id from public.products where sku = 'BEV-001'), 'quantity', 12),
     jsonb_build_object('product_id', (select id from public.products where sku = 'BEV-002'), 'quantity', 15),
     jsonb_build_object('product_id', (select id from public.products where sku = 'BEV-001'), 'quantity', 8)),
-  (select id from public.customers where full_name = 'Juan Dela Cruz'), 'OR-0001', null,
-  '11111111-1111-1111-1111-111111111111')).id;
-select tests.eq((select total_quantity from public.sales where reference_no = 'OR-0001'), 35, 'sale totals 35 units');
-select tests.eq((select total_amount from public.sales where reference_no = 'OR-0001'), 20 * 55 + 15 * 35.00, 'sale amount uses server prices');
-select tests.eq((select count(*)::int from public.stock_movements where sale_id = (select id from public.sales where reference_no = 'OR-0001')),
+  p_payment_method := 'cash', p_amount_received := 2000,
+  p_customer_id := (select id from public.customers where full_name = 'Juan Dela Cruz'),
+  p_client_request_id := '11111111-1111-1111-1111-111111111111')).id;
+create temp view sale1 as select * from public.sales where client_request_id = '11111111-1111-1111-1111-111111111111';
+grant select on sale1 to authenticated;
+select tests.eq((select total_quantity from sale1), 35, 'sale totals 35 units');
+select tests.eq((select total_amount from sale1), 20 * 55 + 15 * 35.00, 'sale amount uses server prices');
+select tests.eq((select change_amount from sale1), 2000 - 1625.00, 'cash change is calculated (2000 - 1625 = 375)');
+select tests.ok((select reference_no ~ '^TXN-[0-9]{8}-[0-9]{5}$' and invoice_no ~ '^INV-[0-9]{6}$' from sale1), 'unique transaction and invoice numbers generated');
+select tests.eq((select created_by_name from sale1), 'Samuel Staff', 'sale records the cashier');
+select tests.as_user('00000000-0000-0000-0000-00000000000a');
+select tests.eq((select count(*)::int from public.stock_movements where sale_id = (select id from sale1)),
   2, 'exactly one ledger entry per sold product');
+select tests.as_user('00000000-0000-0000-0000-00000000000c');
 -- idempotent retry (network retry / double click) does not sell twice
 select public.record_sale(jsonb_build_array(jsonb_build_object('product_id', 1, 'quantity', 12)),
-  null, 'OR-0001-RETRY', null, '11111111-1111-1111-1111-111111111111');
+  p_amount_received := 1000, p_client_request_id := '11111111-1111-1111-1111-111111111111');
 select tests.eq((select count(*)::int from public.sales), 1, 'retried sale with same request id is not recorded twice');
-select tests.throws($$select public.record_sale('[{"product_id":1,"quantity":1}]', null, 'or-0001')$$, 'already been recorded',
-  'duplicate sale reference rejected');
+select tests.throws($$select public.record_sale('[{"product_id":1,"quantity":1}]', 'cash', 10)$$, 'less than the total',
+  'insufficient cash payment rejected');
 -- atomicity: one line short of stock => whole sale rejected, nothing written
 select tests.throws($$select public.record_sale(jsonb_build_array(
     jsonb_build_object('product_id', (select id from public.products where sku = 'BEV-001'), 'quantity', 1),
-    jsonb_build_object('product_id', (select id from public.products where sku = 'FOOD-001'), 'quantity', 100000)), null, 'OR-FAIL')$$,
-  'Insufficient stock', 'oversell rejected');
-select tests.eq((select count(*)::int from public.sales where reference_no = 'OR-FAIL'), 0, 'failed sale left no sale row');
+    jsonb_build_object('product_id', (select id from public.products where sku = 'FOOD-001'), 'quantity', 100000)), 'cash', 999999999)$$,
+  'Not enough stock', 'oversell rejected');
+select tests.eq((select count(*)::int from public.sales), 1, 'failed sale left no sale row');
 select tests.eq((select current_stock from public.products where sku = 'BEV-001'), 380, 'failed sale left stock untouched (300+100-20)');
-select tests.throws($$select public.record_sale('[]')$$, 'at least one item', 'empty sale rejected');
-select tests.throws($$select public.record_sale('[{"product_id":999999,"quantity":1}]')$$, 'does not exist', 'unknown product rejected');
+select tests.throws($$select public.record_sale('[]')$$, 'at least one product', 'empty sale rejected');
+select tests.throws($$select public.record_sale('[{"product_id":999999,"quantity":1}]', 'cash', 1)$$, 'no longer exists', 'unknown product rejected');
+select tests.throws($$select public.record_sale('[{"product_id":1,"quantity":1.5}]', 'cash', 100)$$, 'whole-number', 'fractional quantity rejected');
 
--- other stock out
-select tests.throws($$select public.record_stock_out(3, 5, 'damaged', null, null, '  ')$$, 'reason is required', 'stock-out reason required');
-select tests.throws($$select public.record_stock_out(3, 5, 'sale', null, null, 'x')$$, 'Use Record Sale', 'sale type not allowed in stock out');
+-- other stock out (Administrator)
+select tests.as_user('00000000-0000-0000-0000-00000000000a');
+select tests.throws($$select public.record_stock_out(3, 5, 'other_out', null, null, '  ')$$, 'Remarks are required', 'remarks required for "other" stock-out');
+select tests.throws($$select public.record_stock_out(3, 5, 'sale', null, null, 'x')$$, 'Choose a stock-out reason', 'sale type not allowed in stock out');
 select public.record_stock_out((select id from public.products where sku = 'FOOD-001'), 5, 'damaged', null, 'DMG-1', 'Torn sacks');
+select tests.ok((select movement_no from public.stock_movements where reference_no = 'DMG-1') ~ '^OUT-[0-9]{6}$', 'stock-out gets a unique OUT- reference number');
+select tests.as_user('00000000-0000-0000-0000-00000000000c');
 
 -- adjustment: admin only
-select tests.throws($$select public.record_adjustment(2, 'count', 140)$$, 'permission', 'staff cannot adjust stock');
+select tests.throws($$select public.record_adjustment(2, 'count', 140)$$, 'permission', 'cashier cannot adjust stock');
 select tests.as_user('00000000-0000-0000-0000-00000000000a');
 select tests.throws($$select public.record_adjustment(2, '', 140)$$, 'reason is required', 'adjustment reason required');
 select tests.throws($$select public.record_adjustment(2, 'x', 140, 5)$$, 'either', 'adjustment needs exactly one mode');
@@ -250,7 +271,7 @@ set role authenticated;
 select tests.as_user('00000000-0000-0000-0000-00000000000a');
 select public.record_stock_in((select id from public.products where sku = 'BEV-002'), 80, null, 'DR-1003', null);
 select public.record_sale(jsonb_build_array(jsonb_build_object('product_id', (select id from public.products where sku = 'BEV-001'), 'quantity', 25)),
-  null, 'OR-0002');
+  'cash', 1375);
 select tests.set_time((select array_agg(id) from public.stock_movements where occurred_at > '2026-11-01 23:59 Asia/Manila'),
   '2026-11-02 08:15 Asia/Manila');
 
@@ -359,7 +380,7 @@ select tests.throws($$select public.reverse_movement((select id from public.stoc
 select tests.throws($$select public.reverse_movement((select min(id) from public.stock_movements where movement_type = 'sale'), 'x')$$,
   'cannot be reversed', 'sales cannot be reversed via reversal');
 select tests.as_user('00000000-0000-0000-0000-00000000000c');
-select tests.throws($$select public.reverse_movement(1, 'x')$$, 'permission', 'staff cannot reverse movements');
+select tests.throws($$select public.reverse_movement(1, 'x')$$, 'permission', 'cashier cannot reverse movements');
 
 -- ===========================================================================
 -- 8. Safeguarded deletes
@@ -384,7 +405,7 @@ select tests.eq(public.delete_category((select id from public.categories where n
 -- ===========================================================================
 -- 9. Dashboard, reports & settings
 -- ===========================================================================
-select tests.as_user('00000000-0000-0000-0000-00000000000b');   -- owner (read-only) can view BI
+select tests.as_user('00000000-0000-0000-0000-00000000000a');
 select tests.eq((public.dashboard_stats() ->> 'total_quantity')::int, 575, 'dashboard total quantity from database (670 − 95 written off)');
 select tests.eq((public.dashboard_stats() ->> 'total_customers')::int, 0, 'dashboard excludes archived customers');
 select tests.ok(jsonb_array_length(public.dashboard_stats() -> 'trend') = 14, 'dashboard trend has 14 days');
@@ -392,14 +413,121 @@ select tests.eq((select sale_count from public.customer_overview where full_name
 select tests.eq((select total_quantity from public.supplier_overview where name = 'Metro Distributors'), 150::bigint,
   'supplier report aggregates deliveries (50 opening + 100)');
 select tests.eq((select stock_status from public.product_overview where sku = 'FOOD-001'), 'out', 'product overview flags out of stock');
-select tests.ok((select count(*) from public.activity_logs) > 10, 'owner can read activity log');
-select tests.throws($$select public.update_setting('store_name', '"Owner Store"')$$, 'permission', 'owner cannot change settings');
+select tests.ok((select count(*) from public.activity_logs) > 10, 'admin can read activity log');
+select tests.as_user('00000000-0000-0000-0000-00000000000c');
+select tests.throws($$select public.update_setting('store_name', '"Owner Store"')$$, 'permission', 'cashier cannot change settings');
 select tests.as_user('00000000-0000-0000-0000-00000000000a');
 select tests.throws($$select public.update_setting('timezone', '"Mars/Base"')$$, 'Invalid time zone', 'invalid time zone rejected');
 select public.update_setting('store_name', '"Bill Store"');
 select tests.as_user('00000000-0000-0000-0000-00000000000c');
-select tests.eq((select count(*)::int from public.activity_logs where user_id <> auth.uid()), 0, 'staff only see their own activity');
+select tests.eq((select count(*)::int from public.activity_logs where user_id <> auth.uid()), 0, 'cashier only sees their own activity');
 select tests.ok((select count(*) from public.activity_logs where action = 'sale') >= 1, 'sales are audit-logged');
+
+
+-- ===========================================================================
+-- 9b. Point of Sale: search, payments, discounts, cashier isolation, voids,
+--     sales & stock management reports, dashboards
+-- ===========================================================================
+set role authenticated;
+select tests.as_user('00000000-0000-0000-0000-00000000000a');
+select (public.update_product((select id from public.products where sku = 'BEV-001'), 'BEV-001', 'Cola 1L',
+  (select id from public.categories where name = 'Beverages'), 'bottle', 40, 55, 20, null, '4801234567890')).id;
+select tests.eq((select barcode from public.products where sku = 'BEV-001'), '4801234567890', 'barcode saved on product');
+
+select tests.as_user('00000000-0000-0000-0000-00000000000e');
+select tests.eq((select name from public.pos_search_products('COL')), 'Cola 1L', 'POS search: partial, case-insensitive name');
+select tests.eq((select name from public.pos_search_products('bev-002')), 'Orange Juice 1L', 'POS search: SKU');
+select tests.eq((select name from public.pos_search_products('4801234567890')), 'Cola 1L', 'POS search: barcode');
+select tests.eq((select count(*)::int from public.pos_search_products('food')), 1, 'POS search: category name');
+select tests.eq((select count(*)::int from public.pos_search_products(null)), 2, 'POS search hides archived products');
+select tests.eq((select max(total_count)::int from public.pos_search_products(null, null, 'name', false, 1, 0)), 2, 'POS search is paged with a total count');
+select tests.eq((select name from public.pos_lookup_code(' 4801234567890 ')), 'Cola 1L', 'barcode scanner lookup finds the product');
+select tests.eq((select count(*)::int from public.pos_lookup_code('NOPE-123')), 0, 'unknown barcode returns nothing');
+
+-- payments
+select tests.throws($$select public.record_sale('[{"product_id":1,"quantity":1}]', 'card', null)$$, 'not enabled', 'disabled payment method rejected');
+select (public.record_sale(jsonb_build_array(jsonb_build_object('product_id', (select id from public.products where sku = 'BEV-001'), 'quantity', 2)),
+  'gcash', null, p_payment_reference := 'GC-7788', p_customer_name := 'Walk-in Ana',
+  p_client_request_id := '33333333-3333-3333-3333-333333333333')).id;
+create temp view sale_gc as select * from public.sales where client_request_id = '33333333-3333-3333-3333-333333333333';
+grant select on sale_gc to authenticated;
+select tests.eq((select array[payment_method, payment_reference, customer_name] from sale_gc), array['gcash', 'GC-7788', 'Walk-in Ana'],
+  'non-cash payment recorded with reference and walk-in customer');
+select tests.eq((select array[amount_received, change_amount] from sale_gc), array[110.00, 0.00], 'non-cash: amount received = total, no change');
+
+-- discounts: cashier limit (0% by default), administrator may discount
+select tests.throws($$select public.record_sale('[{"product_id":1,"quantity":1}]', 'cash', 100, 5)$$, 'needs the Administrator', 'cashier cannot discount above the limit');
+select tests.as_user('00000000-0000-0000-0000-00000000000a');
+select (public.update_setting('cashier_max_discount_pct', '10')).key;
+select tests.throws($$select public.update_setting('payment_methods', '["gcash"]')$$, 'must include Cash', 'cash cannot be disabled');
+select tests.as_user('00000000-0000-0000-0000-00000000000e');
+select (public.record_sale('[{"product_id":1,"quantity":2}]', 'cash', 100, 11,
+  p_client_request_id := '44444444-4444-4444-4444-444444444444')).id;
+select tests.eq((select array[subtotal, discount_amount, total_amount, change_amount] from public.sales
+                  where client_request_id = '44444444-4444-4444-4444-444444444444'), array[110.00, 11.00, 99.00, 1.00],
+  'cashier discount within 10% limit: subtotal 110, discount 11, total 99, change 1');
+select tests.throws($$select public.record_sale('[{"product_id":1,"quantity":2}]', 'cash', 100, 12)$$, 'needs the Administrator', 'cashier discount above 10% rejected');
+
+-- cashier isolation: Cara sees only her own sales; Sam only his
+select tests.eq((select count(*)::int from public.sales), 2, 'cashier sees only her own transactions');
+select tests.eq((select max(total_count)::int from public.list_sales()), 2, 'cashier transaction history lists only her own sales');
+select tests.eq((select count(*)::int from public.sale_items), 2, 'cashier sees only items of her own sales');
+select tests.eq((select count(*)::int from public.stock_movements), 0, 'cashier cannot read the stock ledger');
+select tests.eq((select count(*)::int from public.suppliers), 0, 'cashier cannot read suppliers');
+select tests.throws($$select public.log_invoice_action((select id from sale1), 'printed')$$, 'not found', 'cashier cannot use another cashier''s invoice');
+select public.log_invoice_action((select id from sale_gc), 'printed');
+select tests.ok(exists (select 1 from public.activity_logs where action = 'invoice_printed' and user_id = auth.uid()), 'invoice printing is audit-logged');
+select tests.eq(((public.my_dashboard()) -> 'sales_today' ->> 'transactions')::int, 2, 'cashier dashboard shows her own transactions today');
+select tests.throws($$select public.admin_dashboard()$$, 'permission', 'cashier cannot open the administrator dashboard');
+select tests.throws($$select public.sales_report(current_date, current_date)$$, 'permission', 'cashier cannot open sales reports');
+select tests.throws($$select public.stock_report(current_date, current_date)$$, 'permission', 'cashier cannot open stock reports');
+select tests.throws($$select public.void_sale((select id from sale_gc), 'x')$$, 'permission', 'cashier cannot void transactions');
+
+-- void: administrator only; stock returns through the ledger, sale stays on record
+select tests.as_user('00000000-0000-0000-0000-00000000000a');
+select tests.eq((select count(*)::int from public.sales), 4, 'administrator sees every transaction');
+create temp table before_void as select current_stock from public.products where sku = 'BEV-001';
+grant select on before_void to authenticated;
+select tests.throws($$select public.void_sale((select id from sale_gc), ' ')$$, 'reason is required', 'void needs a reason');
+select (public.void_sale((select id from sale_gc), 'Customer cancelled')).status;
+select tests.eq((select array[status, payment_status, voided_by_name] from sale_gc), array['voided', 'refunded', 'Bill Admin'], 'sale marked voided and refunded');
+select tests.eq((select current_stock from public.products where sku = 'BEV-001'), (select current_stock + 2 from before_void), 'voided quantity returned to stock');
+select tests.eq((select count(*)::int from public.stock_movements where movement_type = 'sale_void' and sale_id = (select id from sale_gc)), 1,
+  'void writes a VOID- ledger entry');
+select tests.throws($$select public.void_sale((select id from sale_gc), 'again')$$, 'already been voided', 'a sale can only be voided once');
+reset role;
+select tests.throws($$update public.sales set total_amount = 1 where id = (select id from sale_gc)$$, 'cannot be updated', 'finalized sales cannot be edited directly');
+select tests.throws($$update public.sales set status = 'completed', voided_at = null where id = (select id from sale_gc)$$, 'cannot be updated', 'a void cannot be undone directly');
+set role authenticated;
+select tests.as_user('00000000-0000-0000-0000-00000000000a');
+
+-- sales report: completed only; voided shown separately
+create temp table rpt as select public.sales_report(current_date, current_date) as r;
+grant select on rpt to authenticated;
+select tests.eq((select (r -> 'totals' ->> 'transactions')::int from rpt), 3, 'sales report counts completed transactions only');
+select tests.eq((select (r -> 'totals' ->> 'net_sales')::numeric from rpt), (select sum(total_amount) from public.sales where status = 'completed'),
+  'net sales = sum of completed transaction totals');
+select tests.eq((select (r -> 'totals' ->> 'gross_sales')::numeric - (r -> 'totals' ->> 'discounts')::numeric from rpt),
+  (select (r -> 'totals' ->> 'net_sales')::numeric from rpt), 'gross - discounts = net');
+select tests.eq((select (r -> 'voided' ->> 'transactions')::int from rpt), 1, 'voided transactions reported separately');
+select tests.eq((select sum((x ->> 'net_sales')::numeric) from rpt, jsonb_array_elements(r -> 'by_cashier') x),
+  (select (r -> 'totals' ->> 'net_sales')::numeric from rpt), 'cashier breakdown adds up to net sales');
+select tests.eq((select sum((x ->> 'transactions')::int) from rpt, jsonb_array_elements(r -> 'by_payment') x)::int, 3, 'payment breakdown adds up');
+select tests.eq((select r -> 'best_sellers' -> 0 ->> 'product_name' from rpt), 'Cola 1L', 'best-selling product first');
+select tests.eq((select jsonb_array_length(r -> 'by_day') from public.sales_report(current_date - 6, current_date) r), 7, 'weekly report has 7 days');
+select tests.eq((select jsonb_array_length(r -> 'monthly_trend') from rpt), 12, 'monthly trend covers 12 months');
+
+-- stock management report: in / out / sold / returned kept separate
+create temp table srpt as select public.stock_report('2026-11-01', current_date) as r;
+grant select on srpt to authenticated;
+select tests.eq((select (r -> 'totals' ->> 'returned_qty')::int from srpt), 2, 'stock report shows voided-sale returns separately');
+select tests.eq((select (r -> 'totals' ->> 'stock_out_qty')::int from srpt), 5, 'stock report: manual stock-out separate from sales');
+select tests.ok((select (r -> 'totals' ->> 'sales_qty')::int > 0 and (r -> 'totals' ->> 'stock_in_qty')::int > 0 from srpt), 'stock report: sales deductions and stock-in reported');
+select tests.eq((select (r -> 'totals' ->> 'stock_out_qty')::int from public.stock_report('2026-11-01', current_date, null, array['stock_in']::public.movement_type[]) r), 0,
+  'movement-type filter applies');
+select tests.eq((public.admin_dashboard() ->> 'total_products')::int, 2, 'admin dashboard counts active products');
+select tests.ok((select max(total_count) from public.list_movements('2026-11-01', current_date, null, null, null, 'VOID-')) = 1, 'movement history searchable by reference number');
+reset role;
 
 -- ===========================================================================
 -- 10. Deactivated accounts lose access immediately
@@ -439,12 +567,12 @@ select tests.as_user('00000000-0000-0000-0000-00000000000a');
 select public.set_product_active((select id from public.products where sku = 'BEV-002'), false);
 select tests.eq((select is_archived from public.products where sku = 'BEV-002'), true, 'admin can deactivate a product that still has stock');
 select tests.eq((select current_stock from public.products where sku = 'BEV-002'), 220, 'deactivation keeps the stock quantity');
-select tests.throws($$select public.record_sale(jsonb_build_array(jsonb_build_object('product_id', (select id from public.products where sku = 'BEV-002'), 'quantity', 1)))$$,
-  'archived', 'inactive product cannot be sold');
+select tests.throws($$select public.record_sale(jsonb_build_array(jsonb_build_object('product_id', (select id from public.products where sku = 'BEV-002'), 'quantity', 1)), 'cash', 100)$$,
+  'no longer sold', 'inactive product cannot be sold');
 select tests.throws($$select public.record_stock_in((select id from public.products where sku = 'BEV-002'), 1)$$, 'archived', 'inactive product cannot be restocked');
 select tests.ok((select count(*) from public.activity_logs where action = 'product_deactivated') = 1, 'deactivation is audit-logged');
-select tests.as_user('00000000-0000-0000-0000-00000000000b');
-select tests.throws($$select public.set_product_active(2, true)$$, 'permission', 'owner cannot reactivate products');
+select tests.as_user('00000000-0000-0000-0000-00000000000e');
+select tests.throws($$select public.set_product_active(2, true)$$, 'permission', 'cashier cannot reactivate products');
 select tests.as_user('00000000-0000-0000-0000-00000000000a');
 select public.set_product_active((select id from public.products where sku = 'BEV-002'), true);
 select tests.eq((select is_archived from public.products where sku = 'BEV-002'), false, 'admin can reactivate a product');
@@ -472,14 +600,15 @@ insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000000e1', 'temp1@billstore.test'),
   ('00000000-0000-0000-0000-0000000000e2', 'temp2@billstore.test');
 insert into public.profiles (id, email, full_name, role) values
-  ('00000000-0000-0000-0000-0000000000e1', 'temp1@billstore.test', 'Temp One', 'staff'),
-  ('00000000-0000-0000-0000-0000000000e2', 'temp2@billstore.test', 'Temp Two', 'staff');
--- Temp One records stock, so their name is part of history
+  ('00000000-0000-0000-0000-0000000000e1', 'temp1@billstore.test', 'Temp One', 'cashier'),
+  ('00000000-0000-0000-0000-0000000000e2', 'temp2@billstore.test', 'Temp Two', 'cashier');
+-- Temp One sells something, so their name is part of history
 set role authenticated;
 select tests.as_user('00000000-0000-0000-0000-0000000000e1');
-select (public.record_stock_out((select id from public.products where sku = 'BEV-002'), 1, 'other_out', null, 'DEL-TEST', 'Sample')).id;
-select tests.as_user('00000000-0000-0000-0000-00000000000b');
-select tests.throws($$select public.schedule_user_deletion('00000000-0000-0000-0000-0000000000e1')$$, 'permission', 'owner cannot delete accounts');
+select (public.record_sale(jsonb_build_array(jsonb_build_object('product_id', (select id from public.products where sku = 'BEV-002'), 'quantity', 1)),
+  'cash', 100, p_client_request_id := '22222222-2222-2222-2222-222222222222')).id;
+select tests.as_user('00000000-0000-0000-0000-00000000000e');
+select tests.throws($$select public.schedule_user_deletion('00000000-0000-0000-0000-0000000000e1')$$, 'permission', 'cashier cannot delete accounts');
 select tests.as_user('00000000-0000-0000-0000-00000000000a');
 select tests.throws($$select public.schedule_user_deletion('00000000-0000-0000-0000-00000000000a')$$, 'own account', 'admin cannot delete own account');
 select public.schedule_user_deletion('00000000-0000-0000-0000-0000000000e1');
@@ -487,7 +616,7 @@ select public.schedule_user_deletion('00000000-0000-0000-0000-0000000000e2');
 select tests.eq((select is_active from public.profiles where id = '00000000-0000-0000-0000-0000000000e1'), false, 'scheduled account is disabled immediately');
 select tests.throws($$select public.schedule_user_deletion('00000000-0000-0000-0000-0000000000e1')$$, 'already scheduled', 'cannot schedule twice');
 select tests.as_user('00000000-0000-0000-0000-0000000000e1');
-select tests.throws($$select public.record_stock_in(1, 1)$$, 'not active', 'scheduled account cannot work');
+select tests.throws($$select public.record_sale('[{"product_id":1,"quantity":1}]', 'cash', 100)$$, 'not active', 'scheduled account cannot work');
 select tests.as_user('00000000-0000-0000-0000-00000000000a');
 select public.recover_user_account('00000000-0000-0000-0000-0000000000e2');
 select tests.eq((select array[is_active::text, coalesce(deletion_scheduled_at::text, 'none')] from public.profiles where id = '00000000-0000-0000-0000-0000000000e2'),
@@ -504,14 +633,14 @@ reset role;
 select tests.eq((select count(*)::int from auth.users where id = '00000000-0000-0000-0000-0000000000e1'), 0, 'sign-in removed after purge');
 select tests.eq((select full_name || '|' || email from public.profiles where id = '00000000-0000-0000-0000-0000000000e1'),
   'Deleted user|deleted-00000000-0000-0000-0000-0000000000e1@deleted.invalid', 'personal details erased');
-select tests.eq((select created_by_name from public.stock_movements where reference_no = 'DEL-TEST'), 'Temp One', 'history keeps the name recorded at the time');
+select tests.eq((select created_by_name from public.sales where client_request_id = '22222222-2222-2222-2222-222222222222'), 'Temp One', 'history keeps the name recorded at the time');
 select tests.ok(exists (select 1 from public.activity_logs where action = 'user_deleted'), 'permanent deletion is audit-logged');
 
 -- ===========================================================================
 -- 14. Profile photos
 -- ===========================================================================
 set role authenticated;
-select tests.as_user('00000000-0000-0000-0000-00000000000b');
+select tests.as_user('00000000-0000-0000-0000-00000000000e');
 select (public.update_my_avatar('data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==')).id;
 select tests.eq((select avatar_url from public.profiles where id = auth.uid()), 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==', 'user can set own photo');
 select tests.throws($$select public.update_my_avatar('javascript:alert(1)')$$, 'JPEG, PNG or WebP', 'non-image values rejected');
@@ -541,9 +670,9 @@ select tests.throws($$select public.backup_restore_apply('{}')$$, 'permission de
 select tests.eq((select count(*)::int from public.backup_settings), 1, 'admin can read backup settings');
 select (public.backup_update_settings(true, 0::smallint, 0::smallint, 12::smallint)).auto_enabled;
 select tests.ok(exists (select 1 from public.activity_logs where action = 'backup_settings_changed'), 'settings changes are audit-logged');
-select tests.as_user('00000000-0000-0000-0000-00000000000b');
-select tests.eq((select count(*)::int from public.backup_settings), 0, 'owner cannot see backup settings');
-select tests.throws($$select public.backup_update_settings(false, null, null, null)$$, 'permission', 'owner cannot change backup settings');
+select tests.as_user('00000000-0000-0000-0000-00000000000e');
+select tests.eq((select count(*)::int from public.backup_settings), 0, 'cashier cannot see backup settings');
+select tests.throws($$select public.backup_update_settings(false, null, null, null)$$, 'permission', 'cashier cannot change backup settings');
 select tests.throws($$insert into public.backup_runs (trigger, created_by_name) values ('manual', 'x')$$, 'permission denied', 'nobody can write backup history through the API');
 reset role;
 
@@ -588,8 +717,8 @@ select tests.eq((select count(*)::int from public.products p
                   where p.current_stock <> coalesce((select sum(quantity_change) from public.stock_movements m where m.product_id = p.id), 0)), 0,
   'ledger balances after restore');
 select tests.eq((select count(*)::int from public.sale_items si where not exists (select 1 from public.sales s where s.id = si.sale_id)), 0, 'sale items still belong to their sales');
-select tests.eq((select avatar_url from public.profiles where id = '00000000-0000-0000-0000-00000000000b'),
-  (select p ->> 'avatar_url' from bk_snapshot, jsonb_array_elements(snap -> 'tables' -> 'profiles') p where p ->> 'id' = '00000000-0000-0000-0000-00000000000b'), 'profile photos restored');
+select tests.eq((select avatar_url from public.profiles where id = '00000000-0000-0000-0000-00000000000e'),
+  (select p ->> 'avatar_url' from bk_snapshot, jsonb_array_elements(snap -> 'tables' -> 'profiles') p where p ->> 'id' = '00000000-0000-0000-0000-00000000000e'), 'profile photos restored');
 select tests.throws($$delete from public.stock_movements where id = (select min(id) from public.stock_movements)$$, 'permanent audit history', 'ledger protection is active again after restore');
 set role authenticated;
 select tests.as_user('00000000-0000-0000-0000-00000000000a');

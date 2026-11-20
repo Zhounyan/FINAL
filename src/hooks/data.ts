@@ -42,12 +42,13 @@ export function useCustomerOptions(enabled = true) {
 }
 
 export function useSupplierOptions(enabled = true) {
-  return useQuery({ queryKey: ['suppliers', 'options'], queryFn: listSupplierOptions, staleTime: 60_000, enabled });
+  return useQuery({ queryKey: ['suppliers', 'options'], queryFn: listSupplierOptions, staleTime: 60_000, refetchOnMount: 'always', enabled });
 }
 
 const TABLE_KEYS: Record<string, string[][]> = {
-  stock_movements: [['dashboard'], ['movements'], ['products'], ['sales'], ['reports'], ['activity'], ['suppliers'], ['customers']],
-  products: [['products'], ['dashboard'], ['reports']],
+  stock_movements: [['dashboard'], ['movements'], ['products'], ['sales'], ['reports'], ['activity'], ['suppliers'], ['customers'], ['pos']],
+  products: [['products'], ['dashboard'], ['reports'], ['pos']],
+  sales: [['sales'], ['dashboard'], ['reports']],
   categories: [['categories'], ['products'], ['dashboard']],
   customers: [['customers'], ['dashboard']],
   suppliers: [['suppliers'], ['dashboard']],
@@ -89,7 +90,7 @@ export function useInvalidateInventory() {
   const qc = useQueryClient();
   return () =>
     Promise.all(
-      [['dashboard'], ['movements'], ['products'], ['sales'], ['reports'], ['activity'], ['customers'], ['suppliers']].map((k) =>
+      [['dashboard'], ['movements'], ['products'], ['sales'], ['reports'], ['activity'], ['customers'], ['suppliers'], ['pos']].map((k) =>
         qc.invalidateQueries({ queryKey: k }),
       ),
     );

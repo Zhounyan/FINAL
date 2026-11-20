@@ -1,0 +1,484 @@
+import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { ArrowDownToLine, Boxes, PackageMinus, PackageX, SlidersHorizontal, Warehouse } from 'lucide-react';
+import { adminDashboard, listMovements, listProducts, PAGE_SIZE, recordAdjustment, recordStockIn, recordStockOut } from '@/lib/api';
+import { errorMessage } from '@/lib/errors';
+import { fmtDateTime, fmtInt, fmtSigned, STOCK_OUT_REASONS } from '@/lib/format';
+import type { MovementType, ProductRow, StockMovement, StockOutType, StockStatus } from '@/lib/types';
+import { useCategories, useDebounce, useInvalidateInventory, useProductOptions, useSupplierOptions, useResettingPage, useStoreToday } from '@/hooks/data';
+import { Button } from '@/components/ui/Button';
+import { Input, Select, Textarea } from '@/components/ui/Field';
+import { ConfirmDialog, Modal } from '@/components/ui/Modal';
+import { Badge, Card, EmptyState, ErrorState, PageHeader, Pagination, SearchInput, StatCard, TableWrap } from '@/components/ui/Display';
+import { LoadingBlock } from '@/components/ui/Spinner';
+import { ProductCombobox } from '@/components/stock/ProductCombobox';
+import { MovementTypeBadge } from '@/components/stock/MovementViews';
+import { HistoryTable } from './StockReportPage';
+
+// ---------------------------------------------------------------------------
+// Pages
+// ---------------------------------------------------------------------------
+export function StockInPage() {
+  return (
+    <div className="space-y-6">
+      <PageHeader icon={<ArrowDownToLine className="size-5" />} title="Stock-In" description="Record products received. Inventory increases as soon as the entry is confirmed, and each entry gets its own IN- reference number." />
+      <StockInForm />
+      <RecentMovements title="Stock-In history" types={['stock_in']} />
+    </div>
+  );
+}
+
+export function StockOutPage() {
+  return (
+    <div className="space-y-6">
+      <PageHeader icon={<PackageMinus className="size-5" />} title="Stock-Out" description="Release damaged, expired, missing or internally used items. Sales are deducted automatically by the Point of Sale." />
+      <StockOutForm />
+      <RecentMovements title="Stock-Out history" types={['damaged', 'expired', 'lost', 'internal_use', 'other_out']} />
+    </div>
+  );
+}
+
+export function InventoryPage() {
+  const [adjusting, setAdjusting] = useState(false);
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        icon={<Warehouse className="size-5" />}
+        title="Inventory"
+        description="Current stock of every product. Quantities change only through Stock-In, Stock-Out, completed sales and authorized adjustments."
+        actions={<Button icon={<SlidersHorizontal className="size-4" />} onClick={() => setAdjusting(true)}>Adjust stock</Button>}
+      />
+      <InventoryPanel />
+      <Modal open={adjusting} onClose={() => setAdjusting(false)} size="xl" title="Authorized stock adjustment" description="Use after a physical count or a verified error. The previous quantity, change and new quantity are kept permanently.">
+        <AdjustmentForm />
+      </Modal>
+    </div>
+  );
+}
+
+function RecentMovements({ title, types }: { title: string; types: MovementType[] }) {
+  const today = useStoreToday();
+  const [from, setFrom] = useState(() => {
+    const d = new Date(`${today}T00:00:00`);
+    d.setDate(d.getDate() - 29);
+    return d.toISOString().slice(0, 10);
+  });
+  const [to, setTo] = useState(today);
+  const [search, setSearch] = useState('');
+  const debounced = useDebounce(search);
+  const [page, setPage] = useResettingPage([from, to, debounced]);
+  const valid = from && to && from <= to;
+  const q = useQuery({
+    queryKey: ['movements', 'recent', types, from, to, debounced, page],
+    queryFn: () => listMovements({ from, to, types, search: debounced, page }),
+    enabled: Boolean(valid),
+    placeholderData: (p) => p,
+  });
+  return (
+    <Card title={title}>
+      <div className="flex flex-wrap items-center gap-3 border-b border-line p-4">
+        <SearchInput value={search} onChange={setSearch} className="max-w-sm flex-1" placeholder="Search product, reference no., user…" />
+        <input type="date" className="input h-10 w-auto" value={from} max={today} onChange={(e) => setFrom(e.target.value)} aria-label="From date" />
+        <input type="date" className="input h-10 w-auto" value={to} max={today} onChange={(e) => setTo(e.target.value)} aria-label="To date" />
+      </div>
+      {q.isError ? <ErrorState error={errorMessage(q.error)} onRetry={() => q.refetch()} /> : q.isLoading ? <LoadingBlock /> : <HistoryTable rows={q.data?.rows ?? []} />}
+      <Pagination page={page} pageSize={PAGE_SIZE} total={q.data?.total ?? 0} onChange={setPage} />
+    </Card>
+  );
+}
+
+
+function SuccessReceipt({ movement, onDismiss }: { movement: StockMovement; onDismiss: () => void }) {
+  return (
+    <div className="animate-pop-in rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900" role="status">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-semibold">
+          Recorded <MovementTypeBadge type={movement.movement_type} /> {fmtSigned(movement.quantity_change)} · {movement.product_name}
+        </p>
+        <Button variant="ghost" size="sm" onClick={onDismiss}>Dismiss</Button>
+      </div>
+      <p className="mt-1">
+        Stock changed from <b>{fmtInt(movement.quantity_before)}</b> to <b>{fmtInt(movement.quantity_after)}</b> · Reference <b>{movement.movement_no}</b> · {fmtDateTime(movement.occurred_at)}
+      </p>
+    </div>
+  );
+}
+
+function SelectedProductInfo({ product }: { product: ProductRow | undefined }) {
+  if (!product) return null;
+  return (
+    <div className="grid grid-cols-3 gap-2 rounded-xl bg-brand-50/70 p-3 text-xs">
+      <div><p className="text-muted">Category</p><p className="font-semibold text-ink">{product.category_name}</p></div>
+      <div><p className="text-muted">On hand</p><p className="font-semibold text-ink tabular-nums">{fmtInt(product.current_stock)} {product.unit}</p></div>
+      <div><p className="text-muted">Minimum</p><p className="font-semibold text-ink tabular-nums">{fmtInt(product.min_stock_level)}</p></div>
+    </div>
+  );
+}
+
+function positiveInt(v: string): number | null {
+  if (!/^\d+$/.test(v.trim())) return null;
+  const n = Number(v);
+  return n > 0 && n <= 10_000_000 ? n : null;
+}
+
+function StockInForm() {
+  const products = useProductOptions();
+  const suppliers = useSupplierOptions();
+  const invalidate = useInvalidateInventory();
+  const [params] = useSearchParams();
+  // A notification can open this form with the product already selected (?product=<id>).
+  const [productId, setProductId] = useState<number | null>(() => (Number(params.get('product')) > 0 ? Number(params.get('product')) : null));
+  const [qty, setQty] = useState('');
+  const [supplierId, setSupplierId] = useState('');
+  const [ref, setRef] = useState('');
+  const [reason, setReason] = useState('');
+  const [unitCost, setUnitCost] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [last, setLast] = useState<StockMovement | null>(null);
+  const product = products.data?.find((p) => p.id === productId);
+
+  const m = useMutation({
+    mutationFn: recordStockIn,
+    onSuccess: async (row) => {
+      setLast(row);
+      toast.success(`Stock-In ${row.movement_no} recorded: +${fmtInt(row.quantity_change)} ${row.product_name}`);
+      setQty('');
+      setRef('');
+      setReason('');
+      setUnitCost('');
+      await invalidate();
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const errs: Record<string, string> = {};
+    const q = positiveInt(qty);
+    if (!productId) errs.product = 'Select a product';
+    if (!q) errs.qty = 'Enter a whole number greater than zero';
+    if (unitCost && (Number.isNaN(Number(unitCost)) || Number(unitCost) < 0)) errs.cost = 'Enter a valid cost';
+    setErrors(errs);
+    if (Object.keys(errs).length) return;
+    m.mutate({
+      product_id: productId!,
+      quantity: q!,
+      supplier_id: supplierId ? Number(supplierId) : null,
+      reference_no: ref,
+      reason,
+      unit_cost: unitCost ? Number(unitCost) : null,
+    });
+  };
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-3">
+      <Card title="Receive stock" subtitle="Products received or added to Bill Store's inventory" className="xl:col-span-2" bodyClassName="p-5">
+        <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2" noValidate>
+          <div className="space-y-3 sm:col-span-2">
+            <ProductCombobox label="Product" required products={products.data ?? []} value={productId} onChange={setProductId} error={errors.product} />
+            <SelectedProductInfo product={product} />
+          </div>
+          <Input label="Quantity received" required type="number" min={1} step={1} inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value)} error={errors.qty} />
+          <Select label="Supplier" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
+            <option value="">No supplier / not applicable</option>
+            {suppliers.data?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </Select>
+          <Input label="Supporting document no." placeholder="Delivery receipt, PO or supplier invoice no." maxLength={60} value={ref} onChange={(e) => setRef(e.target.value)} />
+          <Input label="Purchase price / unit cost" type="number" min={0} step="0.01" placeholder={product ? String(product.purchase_price) : ''} value={unitCost} onChange={(e) => setUnitCost(e.target.value)} error={errors.cost} />
+          <Textarea label="Remarks" maxLength={500} placeholder="e.g. Weekly delivery" value={reason} onChange={(e) => setReason(e.target.value)} wrapperClassName="sm:col-span-2" />
+          <div className="flex justify-end sm:col-span-2">
+            <Button type="submit" size="lg" loading={m.isPending} icon={<ArrowDownToLine className="size-4" />}>Record Stock-In</Button>
+          </div>
+        </form>
+      </Card>
+      <div className="space-y-4">
+        {last && <SuccessReceipt movement={last} onDismiss={() => setLast(null)} />}
+        <HelpCard
+          items={[
+            'A unique IN- reference number, the date, time and your name are recorded automatically.',
+            'Entries are never edited or deleted. A mistake is corrected with a reversal in Stock Movement History.',
+          ]}
+        />
+      </div>
+    </div>
+  );
+}
+
+function HelpCard({ items }: { items: string[] }) {
+  return (
+    <Card title="Good to know" bodyClassName="p-5">
+      <ul className="list-disc space-y-2 pl-4 text-sm text-muted">
+        {items.map((i) => <li key={i}>{i}</li>)}
+      </ul>
+    </Card>
+  );
+}
+
+function StockOutForm() {
+  const products = useProductOptions();
+  const invalidate = useInvalidateInventory();
+  const [productId, setProductId] = useState<number | null>(null);
+  const [type, setType] = useState<StockOutType>('damaged');
+  const [qty, setQty] = useState('');
+  const [ref, setRef] = useState('');
+  const [reason, setReason] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [last, setLast] = useState<StockMovement | null>(null);
+  const [confirm, setConfirm] = useState(false);
+  const product = products.data?.find((p) => p.id === productId);
+
+  const m = useMutation({
+    mutationFn: recordStockOut,
+    onSuccess: async (row) => {
+      setLast(row);
+      setConfirm(false);
+      toast.success(`Stock-Out ${row.movement_no} recorded: ${fmtSigned(row.quantity_change)} ${row.product_name}`);
+      setQty('');
+      setRef('');
+      setReason('');
+      await invalidate();
+    },
+    onError: (e) => {
+      setConfirm(false);
+      toast.error(errorMessage(e));
+    },
+  });
+
+  const validate = () => {
+    const errs: Record<string, string> = {};
+    const q = positiveInt(qty);
+    if (!productId) errs.product = 'Select a product';
+    if (!q) errs.qty = 'Enter a whole number greater than zero';
+    else if (product && q > product.current_stock) errs.qty = `Only ${fmtInt(product.current_stock)} ${product.unit} available`;
+    if (type === 'other_out' && !reason.trim()) errs.reason = 'Please describe the reason';
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-3">
+      <Card title="Release stock" subtitle="Items leaving the store for reasons other than a sale" className="xl:col-span-2" bodyClassName="p-5">
+        <form onSubmit={(e) => { e.preventDefault(); if (validate()) setConfirm(true); }} className="grid gap-4 sm:grid-cols-2" noValidate>
+          <div className="space-y-3 sm:col-span-2">
+            <ProductCombobox label="Product" required products={products.data ?? []} value={productId} onChange={setProductId} error={errors.product} />
+            <SelectedProductInfo product={product} />
+          </div>
+          <Select label="Stock-out reason" required value={type} onChange={(e) => setType(e.target.value as StockOutType)}>
+            {STOCK_OUT_REASONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+          </Select>
+          <Input label="Quantity released" required type="number" min={1} step={1} value={qty} onChange={(e) => setQty(e.target.value)} error={errors.qty} />
+          <Input label="Supporting document no." maxLength={60} value={ref} onChange={(e) => setRef(e.target.value)} wrapperClassName="sm:col-span-2" />
+          <Textarea label={type === 'other_out' ? 'Remarks (required)' : 'Remarks'} required={type === 'other_out'} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} error={errors.reason} wrapperClassName="sm:col-span-2" />
+          <div className="flex justify-end sm:col-span-2">
+            <Button type="submit" size="lg" variant="danger" icon={<PackageMinus className="size-4" />}>Record Stock-Out</Button>
+          </div>
+        </form>
+      </Card>
+      <div className="space-y-4">
+        {last && <SuccessReceipt movement={last} onDismiss={() => setLast(null)} />}
+        <HelpCard items={['Stock can never go below zero.', 'Each entry gets a unique OUT- reference number and is shown separately from sales in the stock reports.']} />
+      </div>
+      <ConfirmDialog
+        open={confirm}
+        title="Record Stock-Out?"
+        message={<>Release <b className="text-ink">{qty} {product?.unit}</b> of <b className="text-ink">{product?.name}</b> — <b>{STOCK_OUT_REASONS.find((r) => r.value === type)?.label}</b>?</>}
+        confirmLabel="Record Stock-Out"
+        loading={m.isPending}
+        onConfirm={() => m.mutate({ product_id: productId!, quantity: Number(qty), movement_type: type, reference_no: ref, reason })}
+        onCancel={() => setConfirm(false)}
+      />
+    </div>
+  );
+}
+
+function AdjustmentForm() {
+  // Admins can still correct the stock of inactive products.
+  const products = useProductOptions(null, true);
+  const invalidate = useInvalidateInventory();
+  const [productId, setProductId] = useState<number | null>(null);
+  const [mode, setMode] = useState<'count' | 'delta'>('count');
+  const [value, setValue] = useState('');
+  const [ref, setRef] = useState('');
+  const [reason, setReason] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [confirm, setConfirm] = useState(false);
+  const [last, setLast] = useState<StockMovement | null>(null);
+  const product = products.data?.find((p) => p.id === productId);
+
+  const preview = useMemo(() => {
+    if (!product || value.trim() === '' || !/^-?\d+$/.test(value.trim())) return null;
+    const n = Number(value);
+    const next = mode === 'count' ? n : product.current_stock + n;
+    return { prev: product.current_stock, change: next - product.current_stock, next };
+  }, [product, value, mode]);
+
+  const m = useMutation({
+    mutationFn: recordAdjustment,
+    onSuccess: async (row) => {
+      setLast(row);
+      setConfirm(false);
+      toast.success(`Adjustment recorded for ${row.product_name}`);
+      setValue('');
+      setReason('');
+      setRef('');
+      await invalidate();
+    },
+    onError: (e) => {
+      setConfirm(false);
+      toast.error(errorMessage(e));
+    },
+  });
+
+  const validate = () => {
+    const errs: Record<string, string> = {};
+    if (!productId) errs.product = 'Select a product';
+    if (!preview) errs.value = mode === 'count' ? 'Enter the counted quantity (whole number)' : 'Enter a whole number such as 5 or -3';
+    else if (preview.next < 0) errs.value = 'The resulting stock cannot be negative';
+    else if (preview.change === 0) errs.value = 'This does not change the stock quantity';
+    if (!reason.trim()) errs.reason = 'An adjustment reason is required';
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-3">
+      <Card title="Stock adjustment" subtitle="Authorised correction after a physical count or verified error" className="xl:col-span-2" bodyClassName="p-5">
+        <form onSubmit={(e) => { e.preventDefault(); if (validate()) setConfirm(true); }} className="grid gap-4 sm:grid-cols-2" noValidate>
+          <div className="space-y-3 sm:col-span-2">
+            <ProductCombobox label="Product" required products={products.data ?? []} value={productId} onChange={setProductId} error={errors.product} />
+            <SelectedProductInfo product={product} />
+          </div>
+          <Select label="Adjustment method" value={mode} onChange={(e) => setMode(e.target.value as typeof mode)}>
+            <option value="count">Set counted quantity</option>
+            <option value="delta">Increase / decrease by</option>
+          </Select>
+          <Input
+            label={mode === 'count' ? 'New counted quantity' : 'Adjustment quantity (+/−)'}
+            required
+            type="number"
+            step={1}
+            min={mode === 'count' ? 0 : undefined}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            error={errors.value}
+          />
+          {preview && (
+            <div className="grid grid-cols-3 gap-2 rounded-xl border border-violet-200 bg-violet-50 p-3 text-center text-sm sm:col-span-2" data-testid="adjustment-preview">
+              <div><p className="text-xs text-muted">Previous quantity</p><p className="text-lg font-bold tabular-nums">{fmtInt(preview.prev)}</p></div>
+              <div><p className="text-xs text-muted">Adjustment</p><p className="text-lg font-bold text-violet-700 tabular-nums">{fmtSigned(preview.change)}</p></div>
+              <div><p className="text-xs text-muted">New quantity</p><p className="text-lg font-bold tabular-nums">{fmtInt(preview.next)}</p></div>
+            </div>
+          )}
+          <Input label="Reference no." maxLength={60} value={ref} onChange={(e) => setRef(e.target.value)} />
+          <Textarea label="Adjustment reason" required maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} error={errors.reason} wrapperClassName="sm:col-span-2" />
+          <div className="flex justify-end sm:col-span-2">
+            <Button type="submit" icon={<SlidersHorizontal className="size-4" />}>Record adjustment</Button>
+          </div>
+        </form>
+      </Card>
+      <div className="space-y-4">
+        {last && <SuccessReceipt movement={last} onDismiss={() => setLast(null)} />}
+        <HelpCard items={['Adjustments never overwrite history: the previous quantity, change and new quantity are stored permanently.', 'Only administrators can record adjustments.']} />
+      </div>
+      <ConfirmDialog
+        open={confirm}
+        tone="primary"
+        title="Record stock adjustment?"
+        message={preview && <>Change <b className="text-ink">{product?.name}</b> from <b>{fmtInt(preview.prev)}</b> to <b>{fmtInt(preview.next)}</b> ({fmtSigned(preview.change)})?</>}
+        confirmLabel="Record adjustment"
+        loading={m.isPending}
+        onConfirm={() =>
+          m.mutate({ product_id: productId!, reason, reference_no: ref, ...(mode === 'count' ? { new_quantity: Number(value) } : { change: Number(value) }) })
+        }
+        onCancel={() => setConfirm(false)}
+      />
+    </div>
+  );
+}
+
+function InventoryPanel() {
+  const [status, setStatus] = useState<'all' | StockStatus>('all');
+  const [categoryId, setCategoryId] = useState<number | null>(null);
+  const [search, setSearch] = useState('');
+  const debounced = useDebounce(search);
+  const categories = useCategories();
+  const [page, setPage] = useResettingPage([status, debounced, categoryId]);
+  const q = useQuery({
+    queryKey: ['products', 'inventory', status, debounced, categoryId, page],
+    queryFn: () => listProducts({ status, search: debounced, categoryId, page }),
+    placeholderData: (p) => p,
+  });
+  const stats = useQuery({ queryKey: ['dashboard', 'admin'], queryFn: adminDashboard });
+  const d = stats.data;
+  const pick = (s: 'all' | StockStatus) => setStatus(s);
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5" data-testid="inventory-cards">
+        <button type="button" onClick={() => pick('all')} className="text-left"><StatCard label="Total products" value={fmtInt(d?.total_products ?? 0)} icon={<Boxes className="size-4" />} className={status === 'all' ? 'ring-2 ring-brand-400' : ''} /></button>
+        <StatCard label="Total inventory quantity" value={fmtInt(d?.total_quantity ?? 0)} icon={<Warehouse className="size-4" />} tone="blue" />
+        <button type="button" onClick={() => pick('ok')} className="text-left"><StatCard label="Available (in stock)" value={fmtInt((d?.total_products ?? 0) - (d?.out_of_stock ?? 0))} tone="green" icon={<Boxes className="size-4" />} className={status === 'ok' ? 'ring-2 ring-emerald-400' : ''} /></button>
+        <button type="button" onClick={() => pick('low')} className="text-left"><StatCard label="Low stock" value={fmtInt(d?.low_stock ?? 0)} tone="amber" icon={<PackageMinus className="size-4" />} className={status === 'low' ? 'ring-2 ring-amber-400' : ''} /></button>
+        <button type="button" onClick={() => pick('out')} className="text-left"><StatCard label="Out of stock" value={fmtInt(d?.out_of_stock ?? 0)} tone="red" icon={<PackageX className="size-4" />} className={status === 'out' ? 'ring-2 ring-red-400' : ''} /></button>
+      </div>
+      <Card title="Current stock levels" subtitle={status === 'all' ? 'All active products' : status === 'ok' ? 'Showing products above their minimum level' : status === 'low' ? 'Showing low-stock products' : 'Showing out-of-stock products'}>
+        <div className="flex flex-wrap gap-3 border-b border-line p-4">
+          <SearchInput value={search} onChange={setSearch} className="max-w-sm flex-1" placeholder="Search name, SKU, barcode…" />
+          <select className="input h-10 w-auto" value={categoryId ?? ''} onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : null)} aria-label="Filter by category">
+            <option value="">All categories</option>
+            {categories.data?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <select className="input h-10 w-auto" value={status} onChange={(e) => setStatus(e.target.value as typeof status)} aria-label="Filter by stock status">
+            <option value="all">All stock statuses</option>
+            <option value="ok">In stock</option>
+            <option value="low">Low stock</option>
+            <option value="out">Out of stock</option>
+          </select>
+        </div>
+        {q.isError ? (
+          <ErrorState error={errorMessage(q.error)} onRetry={() => q.refetch()} />
+        ) : q.isLoading ? (
+          <LoadingBlock />
+        ) : !q.data?.rows.length ? (
+          <EmptyState title="No products match" />
+        ) : (
+          <TableWrap>
+            <table className="table-base" data-testid="inventory-table">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Category</th>
+                  <th className="num">On hand</th>
+                  <th className="num">Minimum</th>
+                  <th>Level</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {q.data.rows.map((p) => {
+                  const pct = Math.min(100, p.min_stock_level > 0 ? (p.current_stock / (p.min_stock_level * 2)) * 100 : p.current_stock > 0 ? 100 : 0);
+                  return (
+                    <tr key={p.id}>
+                      <td><span className="font-medium">{p.name}</span><span className="block text-xs text-muted">{p.sku}{p.barcode ? ` · ${p.barcode}` : ''}</span></td>
+                      <td>{p.category_name}</td>
+                      <td className="num font-semibold">{fmtInt(p.current_stock)} <span className="text-xs font-normal text-muted">{p.unit}</span></td>
+                      <td className="num text-muted">{fmtInt(p.min_stock_level)}</td>
+                      <td className="w-40">
+                        <div className="h-2 rounded-full bg-slate-100" title={`${p.current_stock} of target ${p.min_stock_level * 2}`}>
+                          <div className={`h-2 rounded-full ${p.stock_status === 'out' ? 'bg-red-500' : p.stock_status === 'low' ? 'bg-amber-500' : 'bg-brand-600'}`} style={{ width: `${pct}%` }} />
+                        </div>
+                      </td>
+                      <td>{p.stock_status === 'out' ? <Badge tone="red">Out of stock</Badge> : p.stock_status === 'low' ? <Badge tone="amber">Low stock</Badge> : <Badge tone="green">In stock</Badge>}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </TableWrap>
+        )}
+        <Pagination page={page} pageSize={PAGE_SIZE} total={q.data?.total ?? 0} onChange={setPage} />
+      </Card>
+    </div>
+  );
+}

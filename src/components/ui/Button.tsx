@@ -3,7 +3,7 @@ import { clsx } from 'clsx';
 import { Loader2 } from 'lucide-react';
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'outline';
-type Size = 'sm' | 'md' | 'lg' | 'icon';
+type Size = 'sm' | 'md' | 'lg' | 'xl' | 'icon';
 
 const variants: Record<Variant, string> = {
   primary: 'bg-brand-800 text-white hover:bg-brand-900 shadow-sm shadow-brand-900/20',
@@ -17,6 +17,7 @@ const sizes: Record<Size, string> = {
   sm: 'h-8 px-3 text-xs gap-1.5',
   md: 'h-10 px-4 text-sm gap-2',
   lg: 'h-11 px-5 text-sm gap-2',
+  xl: 'h-14 px-6 text-base gap-2.5 rounded-xl',
   icon: 'size-9 justify-center',
 };
 
